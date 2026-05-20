@@ -1,0 +1,283 @@
+import { v4 as uuidv4 } from 'uuid'
+import { createLLMProvider, LLMProvider, LLMMessage } from './llm-provider'
+import { validateLLMOutput } from './validation'
+import { runArchitect, ArchitectOutput } from './agents/architect'
+import { runGenerator, GeneratorOutput } from './agents/generator'
+import { runReviewer } from './agents/reviewer'
+import { Sequence, Review, AgentName, ReactDecisionSchema, OrchestratorOutputSchema } from '@/shared/schemas'
+
+// === Types d'événements ReAct ===
+
+export type WorkflowEvent =
+  | { type: 'workflow_start'; workflowId: string; demande: string }
+  | { type: 'react_thought'; step: number; thought: string }
+  | { type: 'react_action'; step: number; action: string; input: string }
+  | { type: 'react_observation'; step: number; observation: string }
+  | { type: 'agent_start'; agent: AgentName }
+  | { type: 'agent_log'; agent: AgentName; message: string }
+  | { type: 'agent_done'; agent: AgentName; output: unknown }
+  | { type: 'agent_error'; agent: AgentName; error: string }
+  | { type: 'workflow_done'; sequence: Sequence | null; review: Review | null }
+  | { type: 'workflow_error'; error: string }
+
+// === Prompt ReAct pour l'orchestrateur ===
+
+const REACT_SYSTEM_PROMPT = `Tu es l'Orchestrateur ReAct d'une plateforme de conception de cours de français.
+
+Tu fonctionnes selon le pattern ReAct (Reasoning + Acting) :
+- THOUGHT : tu réfléchis à ce qu'il faut faire
+- ACTION : tu choisis une action à exécuter
+- OBSERVATION : tu reçois le résultat
+
+ACTIONS DISPONIBLES :
+1. analyser_demande — Extraire les paramètres de la demande utilisateur (niveau, thème, nombre de séances, contraintes)
+2. construire_sequence — Appeler l'architecte pédagogique pour structurer la séquence
+3. generer_activites — Appeler le générateur pour créer les activités de chaque séance
+4. verifier_qualite — Appeler le reviewer pour vérifier la cohérence
+5. ameliorer — Re-générer les activités des séances problématiques (après un review négatif)
+6. terminer — Le workflow est terminé, la séquence est prête
+
+RÈGLES :
+- Tu dois TOUJOURS commencer par analyser_demande.
+- Après verifier_qualite, si le score est < 60, tu DOIS appeler ameliorer puis re-vérifier.
+- Si le score est >= 60 et < 80, tu PEUX choisir d'améliorer OU de terminer.
+- Si le score est >= 80, tu dois terminer.
+- Tu as un maximum de 8 étapes au total.
+- Tu ne peux PAS appeler la même action 3 fois de suite.
+
+Remplis les champs "thought" (ton raisonnement), "action" (l'action choisie) et "action_input" (détails pour l'action).`
+
+// === Interface du plan ReAct ===
+
+interface ReactStep {
+  thought: string
+  action: string
+  actionInput: string
+  observation: string
+}
+
+// === Moteur ReAct ===
+
+export async function* runWorkflow(
+  demande: string,
+  provider?: string
+): AsyncGenerator<WorkflowEvent> {
+  const workflowId = uuidv4()
+  const llm: LLMProvider = createLLMProvider(provider)
+
+  yield { type: 'workflow_start', workflowId, demande }
+
+  const MAX_STEPS = 8
+  const history: ReactStep[] = []
+  let architectOutput: ArchitectOutput | null = null
+  let generatorOutput: GeneratorOutput | null = null
+  let sequence: Sequence | null = null
+  let review: Review | null = null
+
+  try {
+    for (let step = 1; step <= MAX_STEPS; step++) {
+      // --- Construire le contexte pour l'orchestrateur ---
+      const contextMessages: LLMMessage[] = [
+        { role: 'system', content: REACT_SYSTEM_PROMPT },
+        { role: 'user', content: `Demande de l'enseignant : "${demande}"\n\nHistorique des étapes :\n${formatHistory(history)}\n\nQuelle est ta prochaine étape ?` },
+      ]
+
+      // --- THOUGHT + ACTION : l'orchestrateur raisonne ---
+      const reactChatOptions = { temperature: 0.3, schema: ReactDecisionSchema, schemaName: 'react_decision' }
+      const reactResponse = await llm.chat(contextMessages, reactChatOptions)
+      const parsed = await validateLLMOutput({
+        schema: ReactDecisionSchema,
+        raw: reactResponse.content,
+        context: `react-step-${step}`,
+        llm,
+        messages: contextMessages,
+        options: reactChatOptions,
+        maxRetries: 1,
+      })
+
+      const thought = parsed.thought
+      const action = parsed.action
+      const actionInput = parsed.action_input
+
+      yield { type: 'react_thought', step, thought }
+      yield { type: 'react_action', step, action, input: actionInput }
+
+      // --- Exécuter l'action choisie ---
+      let observation = ''
+
+      switch (action) {
+        case 'analyser_demande': {
+          yield { type: 'agent_start', agent: 'orchestrateur' }
+          yield { type: 'agent_log', agent: 'orchestrateur', message: 'Analyse de la demande...' }
+
+          // Extraction simple des paramètres par le LLM
+          const extractMessages: LLMMessage[] = [
+            { role: 'system', content: `Extrais les paramètres pédagogiques de la demande : niveau scolaire, thème, nombre de séances souhaité, contraintes éventuelles, si une évaluation finale est demandée, et propose une problématique stimulante.` },
+            { role: 'user', content: demande },
+          ]
+          const extractOptions = { temperature: 0.2, schema: OrchestratorOutputSchema, schemaName: 'extract_params' }
+          const extractResp = await llm.chat(extractMessages, extractOptions)
+          const params = await validateLLMOutput({
+            schema: OrchestratorOutputSchema,
+            raw: extractResp.content,
+            context: 'analyser-demande',
+            llm,
+            messages: extractMessages,
+            options: extractOptions,
+            maxRetries: 1,
+          })
+
+          observation = `Paramètres extraits — Niveau: ${params.niveau}, Thème: ${params.theme}, ${params.nombre_seances} séances`
+          yield { type: 'agent_log', agent: 'orchestrateur', message: observation }
+          yield { type: 'agent_done', agent: 'orchestrateur', output: params }
+
+          // Stocker pour les agents suivants
+          architectOutput = { ...params, titre_sequence: '', objectifs: [], competences: [], seances: [], evaluation_finale: null } as any
+          // On garde les params bruts dans l'architectOutput temporaire
+          ;(architectOutput as any)._params = params
+          break
+        }
+
+        case 'construire_sequence': {
+          yield { type: 'agent_start', agent: 'architecte' }
+          const params = (architectOutput as any)?._params || { niveau: '5e', theme: demande, nombre_seances: 5, contraintes: [], evaluation_finale: true, problematique_suggeree: '' }
+
+          const logs: string[] = []
+          architectOutput = await runArchitect(llm, params, (msg) => {
+            logs.push(msg)
+          })
+          for (const log of logs) {
+            yield { type: 'agent_log', agent: 'architecte', message: log }
+          }
+
+          observation = `Séquence "${architectOutput.titre_sequence}" structurée avec ${architectOutput.seances.length} séances`
+          yield { type: 'agent_done', agent: 'architecte', output: architectOutput }
+          break
+        }
+
+        case 'generer_activites': {
+          if (!architectOutput || !architectOutput.titre_sequence) {
+            observation = 'ERREUR: La séquence doit être construite avant de générer les activités'
+            break
+          }
+
+          yield { type: 'agent_start', agent: 'generateur' }
+          const logs: string[] = []
+          generatorOutput = await runGenerator(llm, architectOutput, (msg) => {
+            logs.push(msg)
+          })
+          for (const log of logs) {
+            yield { type: 'agent_log', agent: 'generateur', message: log }
+          }
+
+          // Assembler la séquence complète
+          sequence = assembleSequence(workflowId, architectOutput, generatorOutput)
+
+          const totalActivites = generatorOutput.seances.reduce((acc, s) => acc + s.activites.length, 0)
+          observation = `${totalActivites} activités générées pour ${generatorOutput.seances.length} séances`
+          yield { type: 'agent_done', agent: 'generateur', output: generatorOutput }
+          break
+        }
+
+        case 'verifier_qualite': {
+          if (!sequence) {
+            observation = 'ERREUR: La séquence doit être complète avant la vérification'
+            break
+          }
+
+          yield { type: 'agent_start', agent: 'reviewer' }
+          const logs: string[] = []
+          review = await runReviewer(llm, sequence, (msg) => {
+            logs.push(msg)
+          })
+          for (const log of logs) {
+            yield { type: 'agent_log', agent: 'reviewer', message: log }
+          }
+
+          observation = `Score qualité: ${review.score_qualite}/100 — ${review.problemes.length} problème(s) — ${review.suggestions.length} suggestion(s)`
+          yield { type: 'agent_done', agent: 'reviewer', output: review }
+          break
+        }
+
+        case 'ameliorer': {
+          if (!architectOutput || !sequence || !review) {
+            observation = 'ERREUR: Impossible d\'améliorer sans séquence et review'
+            break
+          }
+
+          yield { type: 'agent_start', agent: 'generateur' }
+          yield { type: 'agent_log', agent: 'generateur', message: '♻️ Re-génération avec prise en compte des critiques...' }
+
+          // Re-générer en incluant les critiques du reviewer
+          const logs: string[] = []
+          generatorOutput = await runGenerator(llm, architectOutput, (msg) => {
+            logs.push(msg)
+          })
+          for (const log of logs) {
+            yield { type: 'agent_log', agent: 'generateur', message: log }
+          }
+
+          sequence = assembleSequence(workflowId, architectOutput, generatorOutput)
+          observation = 'Séquence améliorée — prête pour re-vérification'
+          yield { type: 'agent_done', agent: 'generateur', output: generatorOutput }
+          break
+        }
+
+        case 'terminer': {
+          observation = 'Workflow terminé.'
+          yield { type: 'react_observation', step, observation }
+          history.push({ thought, action, actionInput, observation })
+          yield { type: 'workflow_done', sequence, review }
+          return
+        }
+
+        default: {
+          observation = `Action inconnue: ${action}. Actions valides: analyser_demande, construire_sequence, generer_activites, verifier_qualite, ameliorer, terminer`
+        }
+      }
+
+      yield { type: 'react_observation', step, observation }
+      history.push({ thought, action, actionInput, observation })
+    }
+
+    // Max steps atteint
+    yield { type: 'workflow_done', sequence, review }
+
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'Erreur inconnue'
+    yield { type: 'workflow_error', error: errorMsg }
+  }
+}
+
+// === Helpers ===
+
+function formatHistory(history: ReactStep[]): string {
+  if (history.length === 0) return '(aucune étape précédente)'
+  return history.map((h, i) =>
+    `Étape ${i + 1}:\n  Thought: ${h.thought}\n  Action: ${h.action}(${h.actionInput})\n  Observation: ${h.observation}`
+  ).join('\n\n')
+}
+
+function assembleSequence(workflowId: string, arch: ArchitectOutput, gen: GeneratorOutput): Sequence {
+  return {
+    id: workflowId,
+    titre: arch.titre_sequence,
+    niveau: arch.niveau,
+    theme: arch.theme,
+    problematique: arch.problematique,
+    objectifs: arch.objectifs,
+    competences: arch.competences,
+    seances: arch.seances.map((s) => {
+      const generated = gen.seances.find((gs) => gs.numero === s.numero)
+      return {
+        numero: s.numero,
+        titre: s.titre,
+        duree: s.duree,
+        objectifs: s.objectifs,
+        activites: generated?.activites || [],
+        evaluation: undefined,
+      }
+    }),
+    evaluation_finale: arch.evaluation_finale || undefined,
+  }
+}
