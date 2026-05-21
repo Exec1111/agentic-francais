@@ -325,7 +325,7 @@ export default function HomePage() {
                     </button>
                   </div>
 
-                  <SequenceEditor editor={editor} />
+                  <SequenceEditor editor={editor} provider={provider} />
                 </motion.div>
               )}
             </AnimatePresence>

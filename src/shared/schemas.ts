@@ -2,6 +2,32 @@ import { z } from 'zod'
 
 // === Schémas des artefacts pédagogiques ===
 
+export const RessourceTypeSchema = z.enum([
+  'cours',
+  'bilan',
+  'extrait_oeuvre',
+  'oeuvre_complete',
+  'exercice'
+])
+
+export const ExerciceFormatSchema = z.enum([
+  'texte_a_trous',
+  'relier_notions',
+  'entourer_reponse',
+  'questions_reponses',
+  'libre'
+])
+
+export const RessourceSchema = z.object({
+  id: z.string(),
+  titre: z.string(),
+  type: RessourceTypeSchema,
+  format_exercice: ExerciceFormatSchema.optional(),
+  status: z.enum(['empty', 'generating', 'ready', 'error']).default('empty'),
+  contenu: z.string().default(''),
+  description: z.string().optional(),
+})
+
 export const ActiviteSchema = z.object({
   titre: z.string(),
   type: z.enum(['exercice', 'production_ecrite', 'debat', 'lecture', 'oral', 'evaluation', 'collaboration', 'recherche']),
@@ -9,6 +35,7 @@ export const ActiviteSchema = z.object({
   consigne: z.string(),
   supports: z.array(z.string()).optional(),
   differenciation: z.string().optional(),
+  ressources: z.array(RessourceSchema).optional().default([]),
 })
 
 export const SeanceSchema = z.object({
@@ -18,6 +45,7 @@ export const SeanceSchema = z.object({
   objectifs: z.array(z.string()),
   activites: z.array(ActiviteSchema),
   evaluation: z.string().optional(),
+  ressources: z.array(RessourceSchema).optional().default([]),
 })
 
 export const SequenceSchema = z.object({
@@ -30,6 +58,7 @@ export const SequenceSchema = z.object({
   competences: z.array(z.string()),
   seances: z.array(SeanceSchema),
   evaluation_finale: z.string().optional(),
+  ressources: z.array(RessourceSchema).optional().default([]),
 })
 
 export const ReviewSchema = z.object({
@@ -73,7 +102,7 @@ export const ArchitectOutputSchema = z.object({
 })
 
 export const GeneratorSeanceOutputSchema = z.object({
-  activites: z.array(ActiviteSchema.extend({
+  activites: z.array(ActiviteSchema.omit({ ressources: true }).extend({
     supports: z.array(z.string()).optional().default([]),
     differenciation: z.string().optional(),
   })).min(1),
@@ -87,6 +116,9 @@ export const ReactDecisionSchema = z.object({
 
 // === Types inférés ===
 
+export type Ressource = z.infer<typeof RessourceSchema>
+export type RessourceType = z.infer<typeof RessourceTypeSchema>
+export type ExerciceFormat = z.infer<typeof ExerciceFormatSchema>
 export type Activite = z.infer<typeof ActiviteSchema>
 export type Seance = z.infer<typeof SeanceSchema>
 export type Sequence = z.infer<typeof SequenceSchema>

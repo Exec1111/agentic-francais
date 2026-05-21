@@ -1,16 +1,18 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   BookOpen, Target, Award, Clock, FileText, Plus, Trash2,
-  ChevronUp, ChevronDown, GripVertical, Undo2, Redo2,
+  ChevronUp, ChevronDown, Undo2, Redo2,
 } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import { EditableText } from './EditableText'
 import { EditableList } from './EditableList'
+import { ResourceSection } from './ResourceSection'
+import { ResourceDrawer } from './ResourceDrawer'
 import type { useSequenceEditor, SequencePath } from '@/frontend/hooks/useSequenceEditor'
-import type { Activite } from '@/shared/schemas'
+import type { Activite, Ressource, RessourceType, ExerciceFormat } from '@/shared/schemas'
 
 const TYPE_COLORS: Record<string, string> = {
   exercice: 'bg-blue-900/30 text-blue-300 border-blue-700/50',
@@ -30,15 +32,57 @@ const ACTIVITY_TYPES = [
 
 type EditorReturn = ReturnType<typeof useSequenceEditor>
 
-interface SequenceEditorProps {
-  editor: EditorReturn
+interface DrawerState {
+  ressource: Ressource
+  seanceIndex: number
+  activiteIndex?: number
+  sequenceContext: {
+    sequenceTitle: string
+    niveau: string
+    theme: string
+    seanceTitle: string
+    activiteTitle?: string
+    activiteType?: string
+  }
 }
 
-export function SequenceEditor({ editor }: SequenceEditorProps) {
+interface SequenceEditorProps {
+  editor: EditorReturn
+  provider?: string
+}
+
+export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
   const { sequence } = editor
+  const [drawer, setDrawer] = useState<DrawerState | null>(null)
+
+  const openDrawer = useCallback((
+    ressource: Ressource,
+    seanceIndex: number,
+    activiteIndex: number | undefined,
+    seanceTitle: string,
+    activiteTitle?: string,
+    activiteType?: string,
+  ) => {
+    if (!sequence) return
+    setDrawer({
+      ressource,
+      seanceIndex,
+      activiteIndex,
+      sequenceContext: {
+        sequenceTitle: sequence.titre,
+        niveau: sequence.niveau,
+        theme: sequence.theme,
+        seanceTitle,
+        activiteTitle,
+        activiteType,
+      },
+    })
+  }, [sequence])
+
   if (!sequence) return null
 
   return (
+    <>
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       {/* Toolbar undo/redo */}
       <div className="flex items-center gap-2 justify-end">
@@ -150,6 +194,7 @@ export function SequenceEditor({ editor }: SequenceEditorProps) {
               duree: 55,
               objectifs: [],
               activites: [],
+              ressources: [],
             })}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-gray-700 text-xs text-gray-500 hover:text-primary-400 hover:border-primary-700/50 transition-all"
           >
@@ -165,6 +210,7 @@ export function SequenceEditor({ editor }: SequenceEditorProps) {
             seanceIndex={si}
             totalSeances={sequence.seances.length}
             editor={editor}
+            onOpenDrawer={openDrawer}
           />
         ))}
       </div>
@@ -182,6 +228,28 @@ export function SequenceEditor({ editor }: SequenceEditorProps) {
         />
       </div>
     </motion.div>
+
+    {/* Drawer ressources (rendu en dehors du flux pour éviter les problèmes de z-index) */}
+    <ResourceDrawer
+      isOpen={drawer !== null}
+      onClose={() => setDrawer(null)}
+      ressource={drawer?.ressource ?? null}
+      seanceIndex={drawer?.seanceIndex ?? 0}
+      activiteIndex={drawer?.activiteIndex}
+      sequenceContext={drawer?.sequenceContext ?? { sequenceTitle: '', niveau: '', theme: '', seanceTitle: '' }}
+      onUpdateContent={(si, ai, id, contenu, fmt) => {
+        editor.updateRessourceContent(si, ai, id, contenu, fmt)
+        setDrawer((d) => d && d.ressource.id === id
+          ? { ...d, ressource: { ...d.ressource, contenu, status: 'ready', format_exercice: fmt ?? d.ressource.format_exercice } }
+          : d)
+      }}
+      onUpdateStatus={(si, ai, id, status) => {
+        editor.updateRessourceStatus(si, ai, id, status)
+        setDrawer((d) => d && d.ressource.id === id ? { ...d, ressource: { ...d.ressource, status } } : d)
+      }}
+      provider={provider}
+    />
+    </>
   )
 }
 
@@ -192,11 +260,13 @@ function SeanceBlock({
   seanceIndex,
   totalSeances,
   editor,
+  onOpenDrawer,
 }: {
   seance: any
   seanceIndex: number
   totalSeances: number
   editor: EditorReturn
+  onOpenDrawer: (r: Ressource, si: number, ai: number | undefined, seanceTitre: string, activiteTitre?: string, activiteType?: string) => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
 
@@ -287,6 +357,20 @@ function SeanceBlock({
               />
             </div>
 
+            {/* Ressources de séance */}
+            <div className="px-4 py-3 border-b border-gray-800/50">
+              <span className="text-xs text-gray-600 uppercase font-semibold block mb-1">Ressources de séance</span>
+              <ResourceSection
+                ressources={seance.ressources || []}
+                onOpen={(r) => onOpenDrawer(r, seanceIndex, undefined, seance.titre)}
+                onAdd={(type, fmt, titre) => {
+                  const id = `res-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+                  editor.addRessource(seanceIndex, undefined, { id, titre: titre || type, type, format_exercice: fmt, status: 'empty', contenu: '' })
+                }}
+                onRemove={(id) => editor.removeRessource(seanceIndex, undefined, id)}
+              />
+            </div>
+
             {/* Activités */}
             <div className="p-4 space-y-3">
               <span className="text-xs text-gray-600 uppercase font-semibold">Activités</span>
@@ -299,6 +383,8 @@ function SeanceBlock({
                   activiteIndex={ai}
                   totalActivites={seance.activites.length}
                   editor={editor}
+                  onOpenDrawer={onOpenDrawer}
+                  seanceTitre={seance.titre}
                 />
               ))}
 
@@ -308,6 +394,7 @@ function SeanceBlock({
                   type: 'exercice',
                   duree: 15,
                   consigne: '',
+                  ressources: [],
                 })}
                 className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-gray-700 text-xs text-gray-600 hover:text-primary-400 hover:border-primary-700/50 transition-all"
               >
@@ -330,12 +417,16 @@ function ActiviteBlock({
   activiteIndex,
   totalActivites,
   editor,
+  onOpenDrawer,
+  seanceTitre,
 }: {
   activite: Activite
   seanceIndex: number
   activiteIndex: number
   totalActivites: number
   editor: EditorReturn
+  onOpenDrawer: (r: Ressource, si: number, ai: number | undefined, seanceTitre: string, activiteTitre?: string, activiteType?: string) => void
+  seanceTitre: string
 }) {
   return (
     <div
@@ -420,6 +511,16 @@ function ActiviteBlock({
           />
         </div>
       )}
+
+      <ResourceSection
+        ressources={activite.ressources || []}
+        onOpen={(r) => onOpenDrawer(r, seanceIndex, activiteIndex, seanceTitre, activite.titre, activite.type)}
+        onAdd={(type, fmt, titre) => {
+          const id = `res-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+          editor.addRessource(seanceIndex, activiteIndex, { id, titre: titre || type, type, format_exercice: fmt, status: 'empty', contenu: '' })
+        }}
+        onRemove={(id) => editor.removeRessource(seanceIndex, activiteIndex, id)}
+      />
     </div>
   )
 }

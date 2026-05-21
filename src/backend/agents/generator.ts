@@ -76,7 +76,7 @@ export async function runGenerator(
     results.seances.push({
       numero: seance.numero,
       titre: seance.titre,
-      activites: parsed.activites,
+      activites: parsed.activites.map((a) => ({ ...a, ressources: [] })),
     })
 
     onLog(`    ✓ ${parsed.activites.length} activités générées`)

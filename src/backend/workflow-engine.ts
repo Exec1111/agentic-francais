@@ -269,15 +269,76 @@ function assembleSequence(workflowId: string, arch: ArchitectOutput, gen: Genera
     competences: arch.competences,
     seances: arch.seances.map((s) => {
       const generated = gen.seances.find((gs) => gs.numero === s.numero)
+      const rawActivites = generated?.activites || []
+      
+      const activites = rawActivites.map((act, actIdx) => {
+        const ressources = []
+        if (act.type === 'exercice') {
+          ressources.push({
+            id: `res-seance-${s.numero}-act-${actIdx}-exercice`,
+            titre: `Fiche d'exercices : ${act.titre}`,
+            type: 'exercice' as const,
+            format_exercice: 'libre' as const,
+            status: 'empty' as const,
+            contenu: '',
+            description: `Fiche d'exercices d'application sur la notion : ${act.titre}`
+          })
+          ressources.push({
+            id: `res-seance-${s.numero}-act-${actIdx}-correction`,
+            titre: `Fiche de correction : ${act.titre}`,
+            type: 'exercice' as const,
+            format_exercice: 'libre' as const,
+            status: 'empty' as const,
+            contenu: '',
+            description: `Corrigé détaillé de la fiche d'exercices`
+          })
+        } else if (act.type === 'lecture') {
+          ressources.push({
+            id: `res-seance-${s.numero}-act-${actIdx}-extrait`,
+            titre: `Extrait d'œuvre : ${act.titre}`,
+            type: 'extrait_oeuvre' as const,
+            status: 'empty' as const,
+            contenu: '',
+            description: `Texte littéraire d'étude pour l'activité de lecture`
+          })
+        }
+        return {
+          ...act,
+          ressources: act.ressources?.length ? act.ressources : ressources
+        }
+      })
+
+      // Ressources de séance (Cours + Bilan)
+      const seanceRessources = [
+        {
+          id: `res-seance-${s.numero}-cours`,
+          titre: `Cours théorique : ${s.titre}`,
+          type: 'cours' as const,
+          status: 'empty' as const,
+          contenu: '',
+          description: `Synthèse théorique complète pour la séance : ${s.titre}`
+        },
+        {
+          id: `res-seance-${s.numero}-bilan`,
+          titre: `Bilan & Synthèse : ${s.titre}`,
+          type: 'bilan' as const,
+          status: 'empty' as const,
+          contenu: '',
+          description: `Fiche bilan de fin de séance et points clés à retenir`
+        }
+      ]
+
       return {
         numero: s.numero,
         titre: s.titre,
         duree: s.duree,
         objectifs: s.objectifs,
-        activites: generated?.activites || [],
+        activites,
         evaluation: undefined,
+        ressources: seanceRessources,
       }
     }),
     evaluation_finale: arch.evaluation_finale || undefined,
+    ressources: [],
   }
 }

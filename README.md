@@ -115,6 +115,18 @@ src/
 4. Lire la relecture qualité
 5. Exporter en HTML
 
+
+## 💡 Erreurs et résolutions
+[webpack.cache.PackFileCacheStrategy] Restoring pack from C:\Users\julie\CascadeProjects\windsurf-project\agentic-francais\.next\cache\webpack\client-development.pack.gz failed: TypeError: Cannot read properties of undefined (reading 'hasStartTime'
+
+'est un cache webpack corrompu — Next.js le reconstruit automatiquement au démarrage suivant. Aucun impact sur le fonctionnement.
+
+Pour les supprimer, il suffit de vider le cache :
+
+```bash
+rm -rf .next/cache
+```
+
 ---
 
 *Fait avec ❤️ pour les profs de français*
