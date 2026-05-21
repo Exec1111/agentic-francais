@@ -29,6 +29,8 @@ export const RessourceSchema = z.object({
 })
 
 export const ActiviteSchema = z.object({
+  id: z.string().optional(),
+  seanceId: z.string().optional(),
   titre: z.string(),
   type: z.enum(['exercice', 'production_ecrite', 'debat', 'lecture', 'oral', 'evaluation', 'collaboration', 'recherche']),
   duree: z.number().min(5).max(55),
@@ -39,6 +41,8 @@ export const ActiviteSchema = z.object({
 })
 
 export const SeanceSchema = z.object({
+  id: z.string().optional(),
+  sequenceId: z.string().optional(),
   numero: z.number(),
   titre: z.string(),
   duree: z.number().default(55),
@@ -59,6 +63,8 @@ export const SequenceSchema = z.object({
   seances: z.array(SeanceSchema),
   evaluation_finale: z.string().optional(),
   ressources: z.array(RessourceSchema).optional().default([]),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
 })
 
 export const ReviewSchema = z.object({

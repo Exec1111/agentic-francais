@@ -25,33 +25,43 @@ export async function validateLLMOutput<T extends z.ZodTypeAny>(
 ): Promise<z.infer<T>> {
   const { schema, raw, context, llm, messages, options, maxRetries = 1, onLog } = opts
 
-  // 1. Parse JSON brut
-  const json = safeParseJSON(raw, context)
-
-  // 2. Validation Zod
-  const result = schema.safeParse(json)
-
-  if (result.success) {
-    return result.data
+  // 1. Parse JSON brut (peut échouer si le LLM renvoie du texte libre)
+  let json: any
+  let parseError: string | null = null
+  try {
+    json = safeParseJSON(raw, context)
+  } catch (err) {
+    parseError = err instanceof Error ? err.message : String(err)
+    onLog?.(`⚠️ Réponse non-JSON reçue, tentative de correction...`)
   }
 
-  // 3. Log détaillé de l'erreur
-  const zodErrors = formatZodError(result.error)
-  console.error(`[VALIDATION ${context}] ❌ Erreurs Zod:`)
-  console.error(zodErrors)
-  onLog?.(`⚠️ Validation: ${zodErrors.slice(0, 200)}`)
+  // 2. Validation Zod (seulement si le JSON a été parsé)
+  if (json !== undefined && !parseError) {
+    const result = schema.safeParse(json)
 
-  // 4. Retry avec feedback au LLM
+    if (result.success) {
+      return result.data
+    }
+
+    // 3. Log détaillé de l'erreur Zod
+    parseError = formatZodError(result.error)
+    console.error(`[VALIDATION ${context}] ❌ Erreurs Zod:`)
+    console.error(parseError)
+    onLog?.(`⚠️ Validation: ${parseError.slice(0, 200)}`)
+  }
+
+  // 4. Retry avec feedback au LLM (couvre AUSSI le cas non-JSON)
   if (llm && messages && maxRetries > 0) {
     onLog?.(`♻️ Retry avec correction (${maxRetries} tentative(s) restante(s))...`)
 
+    const feedbackMsg = json === undefined
+      ? `Ta réponse précédente n'est PAS du JSON. Tu as renvoyé du texte libre.\n\nTu DOIS répondre UNIQUEMENT avec un objet JSON valide, sans aucun texte avant ou après.\nPas de markdown, pas d'explication, JUSTE le JSON.`
+      : `Ta réponse JSON précédente est invalide. Voici les erreurs de validation :\n${parseError}\n\nCorrige ta réponse et renvoie UNIQUEMENT du JSON valide respectant exactement le schéma demandé.`
+
     const retryMessages: LLMMessage[] = [
       ...messages,
-      { role: 'assistant', content: raw },
-      {
-        role: 'user',
-        content: `Ta réponse JSON précédente est invalide. Voici les erreurs de validation :\n${zodErrors}\n\nCorrige ta réponse et renvoie UNIQUEMENT du JSON valide respectant exactement le schéma demandé.`
-      },
+      { role: 'assistant', content: raw.slice(0, 2000) },
+      { role: 'user', content: feedbackMsg },
     ]
 
     const retryResponse = await llm.chat(retryMessages, options)
@@ -70,7 +80,7 @@ export async function validateLLMOutput<T extends z.ZodTypeAny>(
 
   // 5. Échec final
   throw new Error(
-    `[${context}] Validation Zod échouée après ${maxRetries === 0 ? 'retry' : 'tentative'}:\n${zodErrors}`
+    `[${context}] Validation échouée après retry:\n${parseError}`
   )
 }
 

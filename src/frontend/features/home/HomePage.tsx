@@ -2,14 +2,16 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Send, Sparkles, RotateCcw, Download, Terminal } from 'lucide-react'
+import { Send, Sparkles, RotateCcw, Download, Terminal, Save } from 'lucide-react'
 import { WorkflowPipeline } from '@/frontend/components/WorkflowPipeline'
 import { SequenceEditor } from '@/frontend/components/SequenceEditor'
 import { ReviewPanel } from '@/frontend/components/ReviewPanel'
 import { ProviderSwitch } from '@/frontend/components/ProviderSwitch'
 import { ReactTrace, ReactStepData } from '@/frontend/components/ReactTrace'
 import { LLMLogsPanel } from '@/frontend/components/LLMLogsPanel'
+import { SavedSequences } from '@/frontend/components/SavedSequences'
 import { useSequenceEditor } from '@/frontend/hooks/useSequenceEditor'
+import { useSequenceStore } from '@/frontend/hooks/useSequenceStore'
 import { cn } from '@/shared/utils'
 
 type AgentName = 'orchestrateur' | 'architecte' | 'generateur' | 'reviewer'
@@ -37,6 +39,7 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const store = useSequenceStore()
 
   // Raccourcis clavier undo/redo
   useEffect(() => {
@@ -173,6 +176,23 @@ export default function HomePage() {
       setIsRunning(false)
     }
   }, [demande, provider, isRunning, resetState])
+
+  const handleSave = useCallback(async () => {
+    if (!editor.sequence) return
+    await store.save(editor.sequence, review)
+  }, [editor.sequence, review, store])
+
+  const handleLoad = useCallback(async (id: string) => {
+    const result = await store.load(id)
+    if (result) {
+      editor.setSequence(result.sequence)
+      setReview(result.review)
+    }
+  }, [store, editor])
+
+  const handleDelete = useCallback(async (id: string) => {
+    await store.remove(id)
+  }, [store])
 
   const handleExportHTML = useCallback(() => {
     if (!editor.sequence) return
@@ -314,8 +334,16 @@ export default function HomePage() {
                   animate={{ opacity: 1, y: 0 }}
                   className="space-y-4"
                 >
-                  {/* Bouton export */}
-                  <div className="flex justify-end">
+                  {/* Boutons sauvegarde et export */}
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={handleSave}
+                      disabled={store.loading}
+                      className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-500 text-white rounded-lg text-sm transition-all disabled:opacity-50"
+                    >
+                      <Save className="h-4 w-4" />
+                      Sauvegarder
+                    </button>
                     <button
                       onClick={handleExportHTML}
                       className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm transition-all"
@@ -329,6 +357,15 @@ export default function HomePage() {
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Séquences sauvegardées */}
+            <SavedSequences
+              sequences={store.savedList}
+              loading={store.loading}
+              onLoad={handleLoad}
+              onDelete={handleDelete}
+              onRefresh={store.refresh}
+            />
 
             {/* État initial */}
             {!isRunning && !editor.sequence && !error && (

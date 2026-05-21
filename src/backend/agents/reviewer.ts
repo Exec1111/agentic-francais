@@ -28,7 +28,15 @@ RÈGLES :
 - Un score de 80+ signifie une bonne séquence.
 - Un score de 60-80 signifie des améliorations nécessaires.
 - Un score sous 60 signifie des problèmes majeurs.
-- Ne modifie JAMAIS directement les contenus.`
+- Ne modifie JAMAIS directement les contenus.
+
+FORMAT DE SORTIE OBLIGATOIRE :
+Tu DOIS répondre UNIQUEMENT avec un objet JSON valide. Pas de texte, pas de markdown, pas d'explication.
+Le JSON doit contenir exactement ces champs :
+- "score_qualite": nombre entre 0 et 100
+- "problemes": tableau d'objets {"type": "...", "description": "...", "seance_concernee": number|null}
+- "suggestions": tableau de strings
+- "resume": string (synthèse en 2-3 phrases)`
 
 export async function runReviewer(
   llm: LLMProvider,
@@ -59,7 +67,7 @@ ${JSON.stringify(sequence, null, 2)}`
     llm,
     messages,
     options: chatOptions,
-    maxRetries: 1,
+    maxRetries: 2,
     onLog,
   })
 

@@ -363,6 +363,69 @@ Séquence (titre, niveau, thème, problématique, objectifs, compétences)
 
 ---
 
+## Persistance (SQLite)
+
+### Architecture
+
+```
+data/
+└── atelier.db          ← SQLite (gitignored, créé au premier lancement)
+```
+
+- **Driver** : `better-sqlite3` (synchrone, rapide, zéro config)
+- **Singleton** : `src/backend/db.ts` — connexion unique + init du schéma
+- **Repositories** : `src/backend/repositories/sequence-repo.ts` — CRUD type-safe
+- **API REST** : `/api/sequences` (GET, POST) + `/api/sequences/[id]` (GET, DELETE)
+
+### Modèle relationnel
+
+```
+sequences ──┐
+  id         │  1:N
+  titre      ├──────► seances ──┐
+  niveau     │          id       │  1:N
+  theme      │          sequence_id  ├──► activites
+  objectifs (JSON)      numero   │       id
+  competences (JSON)    titre    │       seance_id
+  ressources (JSON)     duree    │       titre, type, duree
+  created_at            objectifs (JSON) consigne
+  updated_at            ressources (JSON) supports (JSON)
+             │                   │       ressources (JSON)
+             │                   │
+             └──────► reviews    │
+                        id       │
+                        sequence_id
+                        score_qualite
+                        resume
+                        suggestions (JSON)
+                        └──► review_problemes
+                              type, description, seance_concernee
+```
+
+### Stratégie de sauvegarde
+
+- **Upsert** : `INSERT ... ON CONFLICT(id) DO UPDATE`
+- **Cascade** : `ON DELETE CASCADE` sur toutes les FK
+- **Transaction** : toute la séquence (+ séances + activités) est sauvée atomiquement
+- **JSON hybride** : les listes simples (objectifs, supports) sont stockées en JSON dans la colonne, les entités complexes (séances, activités) ont leur propre table
+
+### API Routes
+
+| Méthode | Route | Description |
+|---------|-------|-------------|
+| `GET` | `/api/sequences` | Liste toutes les séquences (résumé) |
+| `POST` | `/api/sequences` | Sauvegarder une séquence + review |
+| `GET` | `/api/sequences/[id]` | Charger une séquence complète |
+| `DELETE` | `/api/sequences/[id]` | Supprimer une séquence |
+
+### UI
+
+- **Bouton "Sauvegarder"** (icône Save) dans l'éditeur de séquence
+- **Composant `SavedSequences`** : liste des séquences sauvegardées avec chargement au clic et suppression
+- **Hook `useSequenceStore`** : abstraction fetch pour le CRUD
+
+---
+
 ## Dépendances clés
 
 | Package | Rôle |
@@ -370,6 +433,7 @@ Séquence (titre, niveau, thème, problématique, objectifs, compétences)
 | `zod` | Schémas + validation runtime |
 | `zod-to-json-schema` | Conversion Zod → JSON Schema pour Structured Outputs |
 | `openai` | Client OpenAI API |
+| `better-sqlite3` | Base de données locale (fichier unique) |
 | `uuid` | Génération d'IDs workflow |
 | `framer-motion` | Animations UI |
 | `lucide-react` | Icônes |

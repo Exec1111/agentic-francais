@@ -1,0 +1,257 @@
+import { getDb, newId, now, toJson, fromJson } from '@/backend/db'
+import type { Sequence, Review, Seance, Activite, Ressource } from '@/shared/schemas'
+
+// === Types de retour simplifiés ===
+
+export interface SequenceSummary {
+  id: string
+  titre: string
+  niveau: string
+  theme: string
+  createdAt: string
+  seanceCount: number
+}
+
+export interface SequenceWithReview {
+  sequence: Sequence
+  review: Review | null
+}
+
+// === CRUD Séquences ===
+
+/**
+ * Sauvegarde ou met à jour une séquence complète (avec séances, activités, review).
+ * Stratégie : upsert séquence, puis delete cascadé des anciennes séances/activités,
+ * puis réinsertion.
+ */
+export function saveSequence(sequence: Sequence, review?: Review | null): string {
+  const db = getDb()
+  const seqId = sequence.id || newId()
+  const timestamp = now()
+
+  const insertSeq = db.prepare(`
+    INSERT INTO sequences (id, titre, niveau, theme, problematique, evaluation_finale, objectifs, competences, ressources, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      titre = excluded.titre,
+      niveau = excluded.niveau,
+      theme = excluded.theme,
+      problematique = excluded.problematique,
+      evaluation_finale = excluded.evaluation_finale,
+      objectifs = excluded.objectifs,
+      competences = excluded.competences,
+      ressources = excluded.ressources,
+      updated_at = excluded.updated_at
+  `)
+
+  // Transaction
+  const tx = db.transaction(() => {
+    // 1. Upsert séquence
+    insertSeq.run(
+      seqId,
+      sequence.titre,
+      sequence.niveau,
+      sequence.theme,
+      sequence.problematique ?? null,
+      sequence.evaluation_finale ?? null,
+      toJson(sequence.objectifs),
+      toJson(sequence.competences),
+      toJson(sequence.ressources || []),
+      sequence.createdAt ?? timestamp,
+      timestamp
+    )
+
+    // 2. Supprimer anciennes séances (cascade vers activités)
+    db.prepare('DELETE FROM seances WHERE sequence_id = ?').run(seqId)
+
+    // 3. Insérer nouvelles séances et activités
+    for (const seance of sequence.seances) {
+      const seanceId = seance.id || newId()
+      db.prepare(`
+        INSERT INTO seances (id, sequence_id, numero, titre, duree, objectifs, evaluation, ressources)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        seanceId,
+        seqId,
+        seance.numero,
+        seance.titre,
+        seance.duree,
+        toJson(seance.objectifs),
+        seance.evaluation ?? null,
+        toJson(seance.ressources || [])
+      )
+
+      for (const activite of seance.activites) {
+        db.prepare(`
+          INSERT INTO activites (id, seance_id, titre, type, duree, consigne, supports, differenciation, ressources)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          activite.id || newId(),
+          seanceId,
+          activite.titre,
+          activite.type,
+          activite.duree,
+          activite.consigne,
+          toJson(activite.supports || []),
+          activite.differenciation ?? null,
+          toJson(activite.ressources || [])
+        )
+      }
+    }
+
+    // 4. Sauvegarder la review si présente
+    if (review) {
+      saveReviewTx(db, seqId, review)
+    }
+  })
+
+  tx()
+  return seqId
+}
+
+function saveReviewTx(db: ReturnType<typeof getDb>, sequenceId: string, review: Review) {
+  const reviewId = newId()
+
+  // Supprimer ancienne review
+  db.prepare('DELETE FROM reviews WHERE sequence_id = ?').run(sequenceId)
+
+  db.prepare(`
+    INSERT INTO reviews (id, sequence_id, score_qualite, resume, suggestions)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(
+    reviewId,
+    sequenceId,
+    review.score_qualite,
+    review.resume,
+    toJson(review.suggestions)
+  )
+
+  for (const probleme of review.problemes) {
+    db.prepare(`
+      INSERT INTO review_problemes (id, review_id, type, description, seance_concernee)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      newId(),
+      reviewId,
+      probleme.type,
+      probleme.description,
+      probleme.seance_concernee ?? null
+    )
+  }
+}
+
+/**
+ * Récupère une séquence complète avec ses séances, activités et review.
+ */
+export function getSequenceById(id: string): SequenceWithReview | null {
+  const db = getDb()
+
+  // Séquence
+  const row = db.prepare('SELECT * FROM sequences WHERE id = ?').get(id) as any
+  if (!row) return null
+
+  const sequence: Sequence = {
+    id: row.id,
+    titre: row.titre,
+    niveau: row.niveau,
+    theme: row.theme,
+    problematique: row.problematique ?? undefined,
+    evaluation_finale: row.evaluation_finale ?? undefined,
+    objectifs: fromJson<string[]>(row.objectifs),
+    competences: fromJson<string[]>(row.competences),
+    seances: [],
+    ressources: fromJson<Ressource[]>(row.ressources),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+
+  // Séances
+  const seanceRows = db.prepare('SELECT * FROM seances WHERE sequence_id = ? ORDER BY numero').all(id) as any[]
+  for (const sr of seanceRows) {
+    const seance: Seance = {
+      id: sr.id,
+      sequenceId: sr.sequence_id,
+      numero: sr.numero,
+      titre: sr.titre,
+      duree: sr.duree,
+      objectifs: fromJson<string[]>(sr.objectifs),
+      evaluation: sr.evaluation ?? undefined,
+      activites: [],
+      ressources: fromJson<Ressource[]>(sr.ressources),
+    }
+
+    // Activités
+    const actRows = db.prepare('SELECT * FROM activites WHERE seance_id = ? ORDER BY rowid').all(sr.id) as any[]
+    for (const ar of actRows) {
+      seance.activites.push({
+        id: ar.id,
+        seanceId: ar.seance_id,
+        titre: ar.titre,
+        type: ar.type as Activite['type'],
+        duree: ar.duree,
+        consigne: ar.consigne,
+        supports: fromJson<string[]>(ar.supports),
+        differenciation: ar.differenciation ?? undefined,
+        ressources: fromJson<Ressource[]>(ar.ressources),
+      })
+    }
+
+    sequence.seances.push(seance)
+  }
+
+  // Review
+  const review = loadReview(db, id)
+
+  return { sequence, review }
+}
+
+function loadReview(db: ReturnType<typeof getDb>, sequenceId: string): Review | null {
+  const rRow = db.prepare('SELECT * FROM reviews WHERE sequence_id = ?').get(sequenceId) as any
+  if (!rRow) return null
+
+  const problemeRows = db.prepare('SELECT * FROM review_problemes WHERE review_id = ?').all(rRow.id) as any[]
+
+  return {
+    score_qualite: rRow.score_qualite,
+    resume: rRow.resume,
+    suggestions: fromJson<string[]>(rRow.suggestions),
+    problemes: problemeRows.map((p) => ({
+      type: p.type as Review['problemes'][number]['type'],
+      description: p.description,
+      seance_concernee: p.seance_concernee ?? undefined,
+    })),
+  }
+}
+
+/**
+ * Liste toutes les séquences (version allégée, sans contenu).
+ */
+export function listSequences(): SequenceSummary[] {
+  const db = getDb()
+  const rows = db.prepare(`
+    SELECT s.id, s.titre, s.niveau, s.theme, s.created_at,
+           COUNT(DISTINCT se.id) as seance_count
+    FROM sequences s
+    LEFT JOIN seances se ON se.sequence_id = s.id
+    GROUP BY s.id
+    ORDER BY s.created_at DESC
+  `).all() as any[]
+
+  return rows.map((r) => ({
+    id: r.id,
+    titre: r.titre,
+    niveau: r.niveau,
+    theme: r.theme,
+    createdAt: r.created_at,
+    seanceCount: r.seance_count,
+  }))
+}
+
+/**
+ * Supprime une séquence et tout son contenu (cascade SQL).
+ */
+export function deleteSequence(id: string): boolean {
+  const db = getDb()
+  const result = db.prepare('DELETE FROM sequences WHERE id = ?').run(id)
+  return result.changes > 0
+}
