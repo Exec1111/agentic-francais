@@ -72,7 +72,7 @@ export const ReviewSchema = z.object({
   problemes: z.array(z.object({
     type: z.enum(['incoherence', 'surcharge', 'repetition', 'objectif_non_couvert', 'progressivite', 'activite_inadaptee']),
     description: z.string(),
-    seance_concernee: z.number().optional(),
+    seance_concernee: z.number().nullable(),
   })),
   suggestions: z.array(z.string()),
   resume: z.string(),
@@ -81,43 +81,47 @@ export const ReviewSchema = z.object({
 // === Schémas des sorties agents ===
 
 export const OrchestratorOutputSchema = z.object({
-  niveau: z.string().default('5e'),
+  niveau: z.string(),
   theme: z.string(),
-  nombre_seances: z.coerce.number().min(1).max(15).default(5),
-  contraintes: z.array(z.string()).default([]),
-  evaluation_finale: z.coerce.boolean().default(true),
-  problematique_suggeree: z.string().default(''),
+  nombre_seances: z.coerce.number().min(1).max(15),
+  contraintes: z.array(z.string()),
+  evaluation_finale: z.boolean(),
+  problematique_suggeree: z.string(),
 })
 
 export const ArchitectSeanceSchema = z.object({
   numero: z.coerce.number(),
   titre: z.string(),
-  duree: z.coerce.number().min(10).max(120).default(55),
-  objectifs: z.array(z.string()).default([]),
+  duree: z.coerce.number().min(10).max(120),
+  objectifs: z.array(z.string()),
 })
 
 export const ArchitectOutputSchema = z.object({
   titre_sequence: z.string(),
   niveau: z.string(),
   theme: z.string(),
-  problematique: z.string().default(''),
+  problematique: z.string(),
   objectifs: z.array(z.string()).min(1),
   competences: z.array(z.string()).min(1),
   seances: z.array(ArchitectSeanceSchema).min(1),
-  evaluation_finale: z.string().nullable().default(null),
+  evaluation_finale: z.string().nullable(),
 })
 
 export const GeneratorSeanceOutputSchema = z.object({
-  activites: z.array(ActiviteSchema.omit({ ressources: true }).extend({
-    supports: z.array(z.string()).optional().default([]),
-    differenciation: z.string().optional(),
+  activites: z.array(z.object({
+    titre: z.string(),
+    type: z.enum(['exercice', 'production_ecrite', 'debat', 'lecture', 'oral', 'evaluation', 'collaboration', 'recherche']),
+    duree: z.number().min(5).max(55),
+    consigne: z.string(),
+    supports: z.array(z.string()),
+    differenciation: z.string().nullable(),
   })).min(1),
 })
 
 export const ReactDecisionSchema = z.object({
-  thought: z.string().default('Réflexion...'),
-  action: z.enum(['analyser_demande', 'construire_sequence', 'generer_activites', 'verifier_qualite', 'ameliorer', 'terminer']).default('terminer'),
-  action_input: z.string().default(''),
+  thought: z.string(),
+  action: z.enum(['analyser_demande', 'construire_sequence', 'generer_activites', 'verifier_qualite', 'ameliorer', 'terminer']),
+  action_input: z.string(),
 })
 
 // === Types inférés ===

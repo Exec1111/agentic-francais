@@ -124,11 +124,16 @@ export class OpenAIProvider implements LLMProvider {
       responseFormat = { type: 'json_object' }
     }
 
+    const MODEL_TEMPERATURE_OVERRIDES: Record<string, number> = {
+      'gpt-5.5': 1.0,
+    }
+    const temperature = MODEL_TEMPERATURE_OVERRIDES[this.model] ?? options?.temperature ?? 0.7
+
     try {
       const response = await this.client.chat.completions.create({
         model: this.model,
         messages,
-        temperature: options?.temperature ?? 0.7,
+        temperature,
         response_format: responseFormat,
       })
 

@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\julie\\\\CascadeProjects\\\\windsurf-project\\\\agentic-francais\" -Recurse -Force)",
+      "Bash(Select-Object -First 50)",
+      "Bash(Format-Table -Property FullName, PSIsContainer)"
     ]
   }
 }

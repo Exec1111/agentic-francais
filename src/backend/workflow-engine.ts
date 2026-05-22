@@ -83,7 +83,7 @@ export async function* runWorkflow(
       ]
 
       // --- THOUGHT + ACTION : l'orchestrateur raisonne ---
-      const reactChatOptions = { temperature: 0.3, schema: ReactDecisionSchema, schemaName: 'react_decision' }
+      const reactChatOptions = { temperature: 1.0, schema: ReactDecisionSchema, schemaName: 'react_decision' }
       const reactResponse = await llm.chat(contextMessages, reactChatOptions)
       const parsed = await validateLLMOutput({
         schema: ReactDecisionSchema,
