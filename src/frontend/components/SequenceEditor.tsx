@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   BookOpen, Target, Award, Clock, FileText, Plus, Trash2,
-  ChevronUp, ChevronDown, Undo2, Redo2,
+  ChevronUp, ChevronDown, Undo2, Redo2, AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import { EditableText } from './EditableText'
@@ -36,6 +36,7 @@ interface DrawerState {
   ressource: Ressource
   seanceIndex: number
   activiteIndex?: number
+  corpusRef?: string
   sequenceContext: {
     sequenceTitle: string
     niveau: string
@@ -62,12 +63,14 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
     seanceTitle: string,
     activiteTitle?: string,
     activiteType?: string,
+    corpusRef?: string,
   ) => {
     if (!sequence) return
     setDrawer({
       ressource,
       seanceIndex,
       activiteIndex,
+      corpusRef,
       sequenceContext: {
         sequenceTitle: sequence.titre,
         niveau: sequence.niveau,
@@ -146,6 +149,24 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
           placeholder="Ajouter une problématique..."
           as="p"
         />
+
+        {/* Corpus de la séquence */}
+        {sequence.corpus_refs && sequence.corpus_refs.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-primary-800/40">
+            <span className="text-xs text-primary-500 font-semibold uppercase tracking-wider">
+              Corpus :
+            </span>
+            {sequence.corpus_refs.map((ref) => (
+              <span
+                key={ref}
+                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-emerald-950/50 text-emerald-400 border border-emerald-700/40"
+              >
+                <BookOpen className="h-3 w-3 shrink-0" />
+                {ref.replace(/-/g, ' ')}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Objectifs & Compétences */}
@@ -211,6 +232,7 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
             totalSeances={sequence.seances.length}
             editor={editor}
             onOpenDrawer={openDrawer}
+            corpusCount={sequence.corpus_refs?.length ?? 0}
           />
         ))}
       </div>
@@ -236,6 +258,7 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
       ressource={drawer?.ressource ?? null}
       seanceIndex={drawer?.seanceIndex ?? 0}
       activiteIndex={drawer?.activiteIndex}
+      corpusRef={drawer?.corpusRef}
       sequenceContext={drawer?.sequenceContext ?? { sequenceTitle: '', niveau: '', theme: '', seanceTitle: '' }}
       onUpdateContent={(si, ai, id, contenu, fmt) => {
         editor.updateRessourceContent(si, ai, id, contenu, fmt)
@@ -261,12 +284,14 @@ function SeanceBlock({
   totalSeances,
   editor,
   onOpenDrawer,
+  corpusCount,
 }: {
   seance: any
   seanceIndex: number
   totalSeances: number
   editor: EditorReturn
-  onOpenDrawer: (r: Ressource, si: number, ai: number | undefined, seanceTitre: string, activiteTitre?: string, activiteType?: string) => void
+  onOpenDrawer: (r: Ressource, si: number, ai: number | undefined, seanceTitre: string, activiteTitre?: string, activiteType?: string, corpusRef?: string) => void
+  corpusCount: number
 }) {
   const [collapsed, setCollapsed] = useState(false)
 
@@ -385,6 +410,7 @@ function SeanceBlock({
                   editor={editor}
                   onOpenDrawer={onOpenDrawer}
                   seanceTitre={seance.titre}
+                  corpusCount={corpusCount}
                 />
               ))}
 
@@ -419,14 +445,16 @@ function ActiviteBlock({
   editor,
   onOpenDrawer,
   seanceTitre,
+  corpusCount,
 }: {
   activite: Activite
   seanceIndex: number
   activiteIndex: number
   totalActivites: number
   editor: EditorReturn
-  onOpenDrawer: (r: Ressource, si: number, ai: number | undefined, seanceTitre: string, activiteTitre?: string, activiteType?: string) => void
+  onOpenDrawer: (r: Ressource, si: number, ai: number | undefined, seanceTitre: string, activiteTitre?: string, activiteType?: string, corpusRef?: string) => void
   seanceTitre: string
+  corpusCount: number
 }) {
   return (
     <div
@@ -512,9 +540,16 @@ function ActiviteBlock({
         </div>
       )}
 
+      <CorpusBadge
+        status={activite.corpus_status}
+        corpusRef={activite.corpus_ref}
+        suggestion={activite.corpus_suggestion}
+        sequenceCorpusCount={corpusCount}
+      />
+
       <ResourceSection
         ressources={activite.ressources || []}
-        onOpen={(r) => onOpenDrawer(r, seanceIndex, activiteIndex, seanceTitre, activite.titre, activite.type)}
+        onOpen={(r) => onOpenDrawer(r, seanceIndex, activiteIndex, seanceTitre, activite.titre, activite.type, activite.corpus_ref)}
         onAdd={(type, fmt, titre) => {
           const id = `res-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
           editor.addRessource(seanceIndex, activiteIndex, { id, titre: titre || type, type, format_exercice: fmt, status: 'empty', contenu: '' })
@@ -523,4 +558,64 @@ function ActiviteBlock({
       />
     </div>
   )
+}
+
+// === Badge Corpus ===
+
+import type { CorpusSuggestion } from '@/shared/schemas'
+
+function CorpusBadge({
+  status,
+  corpusRef,
+  suggestion,
+  sequenceCorpusCount,
+}: {
+  status?: string
+  corpusRef?: string
+  suggestion?: CorpusSuggestion
+  sequenceCorpusCount: number
+}) {
+  if (!status || status === 'non_requis') return null
+
+  // Texte trouvé : n'afficher que si plusieurs textes coexistent dans la séquence
+  // (sinon l'info est déjà visible dans l'en-tête de séquence)
+  if (status === 'trouve' && corpusRef) {
+    if (sequenceCorpusCount <= 1) return null
+    // Plusieurs textes → indiquer lequel est utilisé ici (compact)
+    const shortLabel = corpusRef.split('-').slice(0, 2).join(' ')
+    return (
+      <div className="mt-2 mb-1">
+        <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-950/40 text-emerald-500/80 border border-emerald-800/30">
+          <BookOpen className="h-2.5 w-2.5 shrink-0" />
+          {shortLabel}
+        </span>
+      </div>
+    )
+  }
+
+  // Texte manquant avec suggestion IA
+  if (status === 'manquant' && suggestion) {
+    return (
+      <div className="mt-2 mb-1">
+        <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-amber-950/50 text-amber-400 border border-amber-700/40">
+          <AlertTriangle className="h-3 w-3 shrink-0" />
+          Texte manquant · Suggestion : {suggestion.auteur}, <em className="ml-0.5">{suggestion.oeuvre}</em>
+        </span>
+      </div>
+    )
+  }
+
+  // Texte manquant sans suggestion
+  if (status === 'manquant' || status === 'manquant_sans_suggestion') {
+    return (
+      <div className="mt-2 mb-1">
+        <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-gray-900/50 text-gray-500 border border-gray-700/30">
+          <AlertTriangle className="h-3 w-3 shrink-0" />
+          Aucun texte disponible dans le corpus
+        </span>
+      </div>
+    )
+  }
+
+  return null
 }

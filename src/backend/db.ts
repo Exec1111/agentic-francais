@@ -105,12 +105,50 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_sequences_created ON sequences(created_at);
     `,
   },
-  // --- Ajouter les futures migrations ici ---
-  // {
-  //   version: 2,
-  //   name: 'add_column_example',
-  //   sql: `ALTER TABLE sequences ADD COLUMN description TEXT;`,
-  // },
+  {
+    version: 2,
+    name: 'corpus_litteraire',
+    sql: `
+      CREATE TABLE IF NOT EXISTS corpus (
+        id                TEXT PRIMARY KEY,
+        type              TEXT NOT NULL CHECK(type IN ('extrait', 'oeuvre_complete')),
+        auteur            TEXT NOT NULL,
+        oeuvre            TEXT NOT NULL,
+        titre             TEXT NOT NULL,
+        annee_publication INTEGER NOT NULL,
+        edition_reference TEXT NOT NULL,
+        pages             TEXT,
+        contenu           TEXT NOT NULL,
+        checksum          TEXT NOT NULL,
+        niveaux           TEXT NOT NULL DEFAULT '[]',
+        genres            TEXT NOT NULL DEFAULT '[]',
+        themes            TEXT NOT NULL DEFAULT '[]',
+        domaine_public    INTEGER NOT NULL DEFAULT 0,
+        verified          INTEGER NOT NULL DEFAULT 0,
+        verified_by       TEXT,
+        verified_at       TEXT,
+        created_at        TEXT NOT NULL,
+        updated_at        TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_corpus_auteur   ON corpus(auteur);
+      CREATE INDEX IF NOT EXISTS idx_corpus_oeuvre   ON corpus(oeuvre);
+      CREATE INDEX IF NOT EXISTS idx_corpus_verified ON corpus(verified);
+    `,
+  },
+  {
+    version: 3,
+    name: 'corpus_refs_on_sequences_and_activites',
+    sql: `
+      -- corpus_refs au niveau séquence (liste JSON d'IDs)
+      ALTER TABLE sequences ADD COLUMN corpus_refs TEXT NOT NULL DEFAULT '[]';
+
+      -- corpus au niveau activité
+      ALTER TABLE activites ADD COLUMN corpus_ref        TEXT;
+      ALTER TABLE activites ADD COLUMN corpus_status     TEXT;
+      ALTER TABLE activites ADD COLUMN corpus_suggestion TEXT;
+    `,
+  },
 ]
 
 function runMigrations(db: Database.Database) {

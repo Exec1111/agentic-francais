@@ -1,6 +1,6 @@
 import { LLMProvider, LLMMessage } from '../llm-provider'
 import { validateLLMOutput } from '../validation'
-import { OrchestratorOutput, ArchitectOutputSchema, ArchitectOutput } from '@/shared/schemas'
+import { OrchestratorOutput, ArchitectOutputSchema, ArchitectOutput, CorpusItem } from '@/shared/schemas'
 
 const SYSTEM_PROMPT = `Tu es l'Agent Architecte Pédagogique d'une plateforme de conception de cours de français.
 
@@ -24,9 +24,16 @@ export type { ArchitectOutput } from '@/shared/schemas'
 export async function runArchitect(
   llm: LLMProvider,
   params: OrchestratorOutput,
-  onLog: (msg: string) => void
+  onLog: (msg: string) => void,
+  corpusItems: CorpusItem[] = []
 ): Promise<ArchitectOutput> {
   onLog('Construction de la structure pédagogique...')
+
+  const corpusBlock = corpusItems.length > 0
+    ? `\nTEXTES AU PROGRAMME (à intégrer dans la structure des séances) :\n${corpusItems
+        .map((item) => `- ${item.auteur}, « ${item.oeuvre} »${item.pages ? ` (${item.pages})` : ''} — ${item.genres.join(', ')}`)
+        .join('\n')}\n`
+    : ''
 
   const userPrompt = `Construis une séquence pédagogique avec ces paramètres :
 - Niveau : ${params.niveau}
@@ -34,7 +41,7 @@ export async function runArchitect(
 - Nombre de séances : ${params.nombre_seances}
 - Problématique suggérée : ${params.problematique_suggeree}
 - Évaluation finale : ${params.evaluation_finale ? 'oui' : 'non'}
-- Contraintes : ${params.contraintes.length > 0 ? params.contraintes.join(', ') : 'aucune'}`
+- Contraintes : ${params.contraintes.length > 0 ? params.contraintes.join(', ') : 'aucune'}${corpusBlock}`
 
   const messages: LLMMessage[] = [
     { role: 'system', content: SYSTEM_PROMPT },

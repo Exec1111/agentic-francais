@@ -10,6 +10,7 @@ describe('useSequenceEditor Reducer', () => {
     theme: 'L\'amour poétique',
     objectifs: ['Découvrir le lyrisme'],
     competences: ['Lecture'],
+    corpus_refs: [],
     seances: [
       {
         numero: 1,

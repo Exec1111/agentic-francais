@@ -1,5 +1,61 @@
 import { z } from 'zod'
 
+// === Schémas du Corpus littéraire ===
+
+export const CorpusItemSchema = z.object({
+  id: z.string(),
+  type: z.enum(['extrait', 'oeuvre_complete']),
+  auteur: z.string(),
+  oeuvre: z.string(),
+  titre: z.string(),
+  annee_publication: z.number(),
+  edition_reference: z.string(),
+  pages: z.string().optional(),
+  contenu: z.string(),
+  checksum: z.string(),
+  niveaux: z.array(z.string()),
+  genres: z.array(z.string()),
+  themes: z.array(z.string()),
+  domaine_public: z.boolean().default(false),
+  verified: z.boolean().default(false),
+  verified_by: z.string().optional(),
+  verified_at: z.string().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+})
+
+export const CorpusQuerySchema = z.object({
+  niveaux: z.array(z.string()).optional(),
+  genres: z.array(z.string()).optional(),
+  themes: z.array(z.string()).optional(),
+  auteur: z.string().optional(),
+  oeuvre: z.string().optional(),
+  type: z.enum(['extrait', 'oeuvre_complete']).optional(),
+  limit: z.number().default(5),
+})
+
+export const CorpusSuggestionSchema = z.object({
+  auteur: z.string(),
+  oeuvre: z.string(),
+  extrait_recommande: z.string(),
+  pourquoi: z.string(),
+  niveau_difficulte: z.enum(['accessible', 'standard', 'exigeant']),
+  mots_approximatifs: z.number().optional(),
+})
+
+// Schéma de sortie du LLM-juge de pertinence corpus
+export const CorpusRankingItemSchema = z.object({
+  id: z.string(),
+  score: z.number().min(0).max(10),
+  raison: z.string(),
+})
+export const CorpusRankingSchema = z.array(CorpusRankingItemSchema)
+
+export type CorpusItem = z.infer<typeof CorpusItemSchema>
+export type CorpusQuery = z.infer<typeof CorpusQuerySchema>
+export type CorpusSuggestion = z.infer<typeof CorpusSuggestionSchema>
+export type CorpusRankingItem = z.infer<typeof CorpusRankingItemSchema>
+
 // === Schémas des artefacts pédagogiques ===
 
 export const RessourceTypeSchema = z.enum([
@@ -38,6 +94,9 @@ export const ActiviteSchema = z.object({
   supports: z.array(z.string()).optional(),
   differenciation: z.string().optional(),
   ressources: z.array(RessourceSchema).optional().default([]),
+  corpus_ref: z.string().optional(),
+  corpus_status: z.enum(['non_requis', 'trouve', 'manquant', 'manquant_sans_suggestion']).optional(),
+  corpus_suggestion: CorpusSuggestionSchema.optional(),
 })
 
 export const SeanceSchema = z.object({
@@ -60,6 +119,7 @@ export const SequenceSchema = z.object({
   problematique: z.string().optional(),
   objectifs: z.array(z.string()),
   competences: z.array(z.string()),
+  corpus_refs: z.array(z.string()).default([]),
   seances: z.array(SeanceSchema),
   evaluation_finale: z.string().optional(),
   ressources: z.array(RessourceSchema).optional().default([]),

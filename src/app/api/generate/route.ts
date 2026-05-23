@@ -3,7 +3,11 @@ import { runWorkflow } from '@/backend/workflow-engine'
 
 export async function POST(request: NextRequest) {
   const body = await request.json()
-  const { demande, provider } = body as { demande: string; provider?: string }
+  const { demande, provider, corpus_refs } = body as {
+    demande: string
+    provider?: string
+    corpus_refs?: string[]
+  }
 
   if (!demande || demande.trim().length === 0) {
     return new Response(JSON.stringify({ error: 'La demande est requise' }), {
@@ -16,7 +20,7 @@ export async function POST(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        for await (const event of runWorkflow(demande, provider)) {
+        for await (const event of runWorkflow(demande, provider, corpus_refs)) {
           const data = `data: ${JSON.stringify(event)}\n\n`
           controller.enqueue(encoder.encode(data))
         }

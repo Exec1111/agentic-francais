@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Send, Sparkles, RotateCcw, Download, Terminal, Save } from 'lucide-react'
+import { Send, Sparkles, RotateCcw, Download, Terminal, Save, Loader2 } from 'lucide-react'
 import { WorkflowPipeline } from '@/frontend/components/WorkflowPipeline'
 import { SequenceEditor } from '@/frontend/components/SequenceEditor'
 import { ReviewPanel } from '@/frontend/components/ReviewPanel'
@@ -10,9 +10,11 @@ import { ProviderSwitch } from '@/frontend/components/ProviderSwitch'
 import { ReactTrace, ReactStepData } from '@/frontend/components/ReactTrace'
 import { LLMLogsPanel } from '@/frontend/components/LLMLogsPanel'
 import { SavedSequences } from '@/frontend/components/SavedSequences'
+import { CorpusSelector } from '@/frontend/components/CorpusSelector'
 import { useSequenceEditor } from '@/frontend/hooks/useSequenceEditor'
 import { useSequenceStore } from '@/frontend/hooks/useSequenceStore'
 import { cn } from '@/shared/utils'
+import type { CorpusSuggestResponse } from '@/app/api/corpus/suggest/route'
 
 type AgentName = 'orchestrateur' | 'architecte' | 'generateur' | 'reviewer'
 type AgentStatus = 'idle' | 'running' | 'done' | 'error'
@@ -23,9 +25,13 @@ interface AgentState {
   logs: string[]
 }
 
+type GenerationStep = 'idle' | 'suggesting' | 'corpus_selection' | 'generating' | 'done'
+
 export default function HomePage() {
   const [demande, setDemande] = useState('')
   const [provider, setProvider] = useState<'ollama' | 'openai'>('ollama')
+  const [generationStep, setGenerationStep] = useState<GenerationStep>('idle')
+  const [corpusSuggest, setCorpusSuggest] = useState<CorpusSuggestResponse | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [agents, setAgents] = useState<AgentState[]>([
     { name: 'orchestrateur', status: 'idle', logs: [] },
@@ -67,12 +73,33 @@ export default function HomePage() {
     setReactSteps([])
     setReview(null)
     setError(null)
+    setGenerationStep('idle')
+    setCorpusSuggest(null)
   }, [])
 
-  const handleGenerate = useCallback(async () => {
+  // Étape 1 : suggérer le corpus avant de lancer le workflow
+  const handleSubmit = useCallback(async () => {
     if (!demande.trim() || isRunning) return
-
     resetState()
+    setGenerationStep('suggesting')
+    try {
+      const res = await fetch('/api/corpus/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ demande, provider }),
+      })
+      const data: CorpusSuggestResponse = await res.json()
+      setCorpusSuggest(data)
+      setGenerationStep('corpus_selection')
+    } catch {
+      // Si la suggestion échoue, on lance quand même sans corpus
+      handleGenerate([])
+    }
+  }, [demande, provider, isRunning, resetState])
+
+  // Étape 2 : lancer le vrai workflow avec les refs sélectionnées
+  const handleGenerate = useCallback(async (corpusRefs: string[]) => {
+    setGenerationStep('generating')
     setIsRunning(true)
     setError(null)
 
@@ -82,7 +109,7 @@ export default function HomePage() {
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ demande, provider }),
+        body: JSON.stringify({ demande, provider, corpus_refs: corpusRefs }),
         signal: abortRef.current.signal,
       })
 
@@ -160,6 +187,7 @@ export default function HomePage() {
             case 'workflow_done':
               if (data.sequence) editor.setSequence(data.sequence)
               setReview(data.review)
+              setGenerationStep('done')
               break
 
             case 'workflow_error':
@@ -175,7 +203,7 @@ export default function HomePage() {
     } finally {
       setIsRunning(false)
     }
-  }, [demande, provider, isRunning, resetState])
+  }, [demande, provider])
 
   const handleSave = useCallback(async () => {
     if (!editor.sequence) return
@@ -217,7 +245,7 @@ export default function HomePage() {
               <Sparkles className="h-5 w-5 text-primary-400" />
             </div>
             <div>
-              <h1 className="text-sm font-bold text-white">Atelier Pédagogique</h1>
+              <h1 className="text-sm font-bold text-white">Atelier</h1>
               <p className="text-xs text-gray-500">Système agentique de conception de cours</p>
             </div>
           </div>
@@ -271,23 +299,26 @@ export default function HomePage() {
                   rows={3}
                   disabled={isRunning}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && e.ctrlKey) handleGenerate()
+                    if (e.key === 'Enter' && e.ctrlKey) handleSubmit()
                   }}
                 />
                 <div className="flex flex-col gap-2">
                   <button
-                    onClick={handleGenerate}
-                    disabled={isRunning || !demande.trim()}
+                    onClick={handleSubmit}
+                    disabled={isRunning || generationStep === 'suggesting' || !demande.trim()}
                     className={cn(
                       'flex items-center justify-center h-10 w-10 rounded-lg transition-all',
-                      isRunning || !demande.trim()
+                      isRunning || generationStep === 'suggesting' || !demande.trim()
                         ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
                         : 'bg-primary-600 text-white hover:bg-primary-500 shadow-lg shadow-primary-500/20',
                     )}
                   >
-                    <Send className="h-4 w-4" />
+                    {generationStep === 'suggesting'
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <Send className="h-4 w-4" />
+                    }
                   </button>
-                  {(editor.sequence || error) && (
+                  {(editor.sequence || error || generationStep !== 'idle') && (
                     <button
                       onClick={() => { resetState(); setDemande('') }}
                       className="flex items-center justify-center h-10 w-10 rounded-lg bg-gray-800 text-gray-400 hover:text-white transition-all"
@@ -299,6 +330,24 @@ export default function HomePage() {
               </div>
               <p className="text-xs text-gray-600 mt-2">Ctrl+Enter pour envoyer</p>
             </div>
+
+            {/* Étape corpus */}
+            <AnimatePresence>
+              {generationStep === 'corpus_selection' && corpusSuggest && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <CorpusSelector
+                    response={corpusSuggest}
+                    onConfirm={(refs) => handleGenerate(refs)}
+                    onSkip={() => handleGenerate([])}
+                    isLoading={isRunning}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Erreur */}
             <AnimatePresence>

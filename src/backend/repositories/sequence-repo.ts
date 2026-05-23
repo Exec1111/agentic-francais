@@ -30,8 +30,8 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
   const timestamp = now()
 
   const insertSeq = db.prepare(`
-    INSERT INTO sequences (id, titre, niveau, theme, problematique, evaluation_finale, objectifs, competences, ressources, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sequences (id, titre, niveau, theme, problematique, evaluation_finale, objectifs, competences, corpus_refs, ressources, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       titre = excluded.titre,
       niveau = excluded.niveau,
@@ -40,6 +40,7 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
       evaluation_finale = excluded.evaluation_finale,
       objectifs = excluded.objectifs,
       competences = excluded.competences,
+      corpus_refs = excluded.corpus_refs,
       ressources = excluded.ressources,
       updated_at = excluded.updated_at
   `)
@@ -56,6 +57,7 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
       sequence.evaluation_finale ?? null,
       toJson(sequence.objectifs),
       toJson(sequence.competences),
+      toJson(sequence.corpus_refs || []),
       toJson(sequence.ressources || []),
       sequence.createdAt ?? timestamp,
       timestamp
@@ -83,8 +85,8 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
 
       for (const activite of seance.activites) {
         db.prepare(`
-          INSERT INTO activites (id, seance_id, titre, type, duree, consigne, supports, differenciation, ressources)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO activites (id, seance_id, titre, type, duree, consigne, supports, differenciation, ressources, corpus_ref, corpus_status, corpus_suggestion)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           activite.id || newId(),
           seanceId,
@@ -94,7 +96,10 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
           activite.consigne,
           toJson(activite.supports || []),
           activite.differenciation ?? null,
-          toJson(activite.ressources || [])
+          toJson(activite.ressources || []),
+          activite.corpus_ref ?? null,
+          activite.corpus_status ?? null,
+          activite.corpus_suggestion ? toJson(activite.corpus_suggestion) : null
         )
       }
     }
@@ -159,6 +164,7 @@ export function getSequenceById(id: string): SequenceWithReview | null {
     evaluation_finale: row.evaluation_finale ?? undefined,
     objectifs: fromJson<string[]>(row.objectifs),
     competences: fromJson<string[]>(row.competences),
+    corpus_refs: fromJson<string[]>(row.corpus_refs ?? '[]'),
     seances: [],
     ressources: fromJson<Ressource[]>(row.ressources),
     createdAt: row.created_at,
@@ -193,6 +199,9 @@ export function getSequenceById(id: string): SequenceWithReview | null {
         supports: fromJson<string[]>(ar.supports),
         differenciation: ar.differenciation ?? undefined,
         ressources: fromJson<Ressource[]>(ar.ressources),
+        corpus_ref: ar.corpus_ref ?? undefined,
+        corpus_status: ar.corpus_status ?? undefined,
+        corpus_suggestion: ar.corpus_suggestion ? fromJson(ar.corpus_suggestion) : undefined,
       })
     }
 

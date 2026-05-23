@@ -23,6 +23,7 @@ interface ResourceDrawerProps {
   onUpdateContent: (seanceIndex: number, activiteIndex: number | undefined, ressourceId: string, contenu: string, formatExercice?: any) => void
   onUpdateStatus: (seanceIndex: number, activiteIndex: number | undefined, ressourceId: string, status: 'empty' | 'generating' | 'ready' | 'error') => void
   provider?: string
+  corpusRef?: string
 }
 
 // Parseur Markdown ultra-léger et robuste adapté aux contenus pédagogiques
@@ -100,7 +101,8 @@ export function ResourceDrawer({
   sequenceContext,
   onUpdateContent,
   onUpdateStatus,
-  provider
+  provider,
+  corpusRef,
 }: ResourceDrawerProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editedContent, setEditedContent] = useState('')
@@ -141,7 +143,8 @@ export function ResourceDrawer({
           ressourceTitle: ressource.titre,
           ressourceType: ressource.type,
           formatExercice: ressource.type === 'exercice' ? selectedFormat : undefined,
-          provider
+          corpus_ref: corpusRef,
+          provider,
         })
       })
 

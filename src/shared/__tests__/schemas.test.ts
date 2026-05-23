@@ -101,38 +101,67 @@ describe('Zod Schemas Validation', () => {
   })
 
   describe('SequenceSchema', () => {
-    it('should validate a full sequence and default sequence level ressources to empty', () => {
-      const sequence = {
-        id: 'seq-1',
-        titre: 'La poésie lyrique',
-        niveau: '4e',
-        theme: 'Vivre en société, participer à la société',
-        objectifs: ['Comprendre le lyrisme', 'Écrire un poème'],
-        competences: ['Écriture', 'Lecture'],
-        seances: [
-          {
-            numero: 1,
-            titre: 'Séance 1',
-            objectifs: ['Objectif 1'],
-            activites: [
-              {
-                titre: 'Activité 1',
-                type: 'debat',
-                duree: 15,
-                consigne: 'Débattre.'
-              }
-            ]
-          }
-        ]
-      }
+    const baseSequence = {
+      id: 'seq-1',
+      titre: 'La poésie lyrique',
+      niveau: '4e',
+      theme: 'Vivre en société, participer à la société',
+      objectifs: ['Comprendre le lyrisme', 'Écrire un poème'],
+      competences: ['Écriture', 'Lecture'],
+      seances: [
+        {
+          numero: 1,
+          titre: 'Séance 1',
+          objectifs: ['Objectif 1'],
+          activites: [
+            {
+              titre: 'Activité 1',
+              type: 'debat',
+              duree: 15,
+              consigne: 'Débattre.'
+            }
+          ]
+        }
+      ]
+    }
 
-      const parsed = SequenceSchema.safeParse(sequence)
+    it('should validate a full sequence and default sequence level ressources to empty', () => {
+      const parsed = SequenceSchema.safeParse(baseSequence)
       expect(parsed.success).toBe(true)
       if (parsed.success) {
         expect(parsed.data.ressources).toEqual([])
         expect(parsed.data.seances[0].ressources).toEqual([])
         expect(parsed.data.seances[0].activites[0].ressources).toEqual([])
       }
+    })
+
+    it('should default corpus_refs to an empty array when not provided', () => {
+      const parsed = SequenceSchema.safeParse(baseSequence)
+      expect(parsed.success).toBe(true)
+      if (parsed.success) {
+        expect(parsed.data.corpus_refs).toEqual([])
+      }
+    })
+
+    it('should accept and preserve corpus_refs when provided', () => {
+      const sequence = {
+        ...baseSequence,
+        corpus_refs: ['baudelaire-spleen-lxxviii', 'maupassant-parure-extrait'],
+      }
+      const parsed = SequenceSchema.safeParse(sequence)
+      expect(parsed.success).toBe(true)
+      if (parsed.success) {
+        expect(parsed.data.corpus_refs).toEqual([
+          'baudelaire-spleen-lxxviii',
+          'maupassant-parure-extrait',
+        ])
+      }
+    })
+
+    it('should fail if corpus_refs contains non-string values', () => {
+      const sequence = { ...baseSequence, corpus_refs: [42, true] }
+      const parsed = SequenceSchema.safeParse(sequence)
+      expect(parsed.success).toBe(false)
     })
   })
 })

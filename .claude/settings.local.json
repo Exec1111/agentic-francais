@@ -4,7 +4,9 @@
       "Bash(npx tsc *)",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\julie\\\\CascadeProjects\\\\windsurf-project\\\\agentic-francais\" -Recurse -Force)",
       "Bash(Select-Object -First 50)",
-      "Bash(Format-Table -Property FullName, PSIsContainer)"
+      "Bash(Format-Table -Property FullName, PSIsContainer)",
+      "Bash(ls \"C:\\\\Users\\\\julie\\\\AppData\\\\Roaming\\\\Claude\\\\local-agent-mode-sessions\\\\skills-plugin\\\\ef805964-8570-4e04-b28e-2b2e7946cfb1\\\\a94793d7-9a84-4890-aa21-422cc4549e0c\\\\skills\\\\docx\" 2>/dev/null || echo \"dir not found\")",
+      "Bash(npx vitest *)"
     ]
   }
 }

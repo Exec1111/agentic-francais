@@ -4,7 +4,11 @@ import { validateLLMOutput } from './validation'
 import { runArchitect, ArchitectOutput } from './agents/architect'
 import { runGenerator, GeneratorOutput } from './agents/generator'
 import { runReviewer } from './agents/reviewer'
-import { Sequence, Review, AgentName, ReactDecisionSchema, OrchestratorOutputSchema } from '@/shared/schemas'
+import { searchCorpus, normalizeNiveau } from './repositories/corpus-repo'
+import {
+  Sequence, Review, AgentName, ReactDecisionSchema, OrchestratorOutputSchema,
+  CorpusSuggestionSchema, CorpusItem,
+} from '@/shared/schemas'
 
 // === Types d'événements ReAct ===
 
@@ -60,10 +64,17 @@ interface ReactStep {
 
 export async function* runWorkflow(
   demande: string,
-  provider?: string
+  provider?: string,
+  corpusRefs?: string[]
 ): AsyncGenerator<WorkflowEvent> {
   const workflowId = uuidv4()
   const llm: LLMProvider = createLLMProvider(provider)
+
+  // Résoudre les items corpus pré-sélectionnés une seule fois
+  const { getCorpusById } = await import('./repositories/corpus-repo')
+  const preselectedCorpusItems: CorpusItem[] = (corpusRefs ?? [])
+    .map((id) => getCorpusById(id))
+    .filter((item): item is CorpusItem => item !== null)
 
   yield { type: 'workflow_start', workflowId, demande }
 
@@ -145,7 +156,7 @@ export async function* runWorkflow(
           const logs: string[] = []
           architectOutput = await runArchitect(llm, params, (msg) => {
             logs.push(msg)
-          })
+          }, preselectedCorpusItems)
           for (const log of logs) {
             yield { type: 'agent_log', agent: 'architecte', message: log }
           }
@@ -165,13 +176,13 @@ export async function* runWorkflow(
           const logs: string[] = []
           generatorOutput = await runGenerator(llm, architectOutput, (msg) => {
             logs.push(msg)
-          })
+          }, preselectedCorpusItems)
           for (const log of logs) {
             yield { type: 'agent_log', agent: 'generateur', message: log }
           }
 
-          // Assembler la séquence complète
-          sequence = assembleSequence(workflowId, architectOutput, generatorOutput)
+          // Assembler la séquence complète avec recherche corpus
+          sequence = await assembleSequence(workflowId, architectOutput, generatorOutput, llm, preselectedCorpusItems)
 
           const totalActivites = generatorOutput.seances.reduce((acc, s) => acc + s.activites.length, 0)
           observation = `${totalActivites} activités générées pour ${generatorOutput.seances.length} séances`
@@ -217,7 +228,7 @@ export async function* runWorkflow(
             yield { type: 'agent_log', agent: 'generateur', message: log }
           }
 
-          sequence = assembleSequence(workflowId, architectOutput, generatorOutput)
+          sequence = await assembleSequence(workflowId, architectOutput, generatorOutput, llm, preselectedCorpusItems)
           observation = 'Séquence améliorée — prête pour re-vérification'
           yield { type: 'agent_done', agent: 'generateur', output: generatorOutput }
           break
@@ -258,57 +269,232 @@ function formatHistory(history: ReactStep[]): string {
   ).join('\n\n')
 }
 
-function assembleSequence(workflowId: string, arch: ArchitectOutput, gen: GeneratorOutput): Sequence {
-  return {
-    id: workflowId,
-    titre: arch.titre_sequence,
-    niveau: arch.niveau,
-    theme: arch.theme,
-    problematique: arch.problematique,
-    objectifs: arch.objectifs,
-    competences: arch.competences,
-    seances: arch.seances.map((s) => {
+// === Corpus : types d'activité bénéficiant d'un texte source ===
+
+const ACTIVITES_CORPUS = new Set(['lecture', 'exercice', 'production_ecrite'])
+
+// Sélectionne le meilleur item corpus depuis une liste pré-sélectionnée
+export function assignCorpusFromPreselection(
+  corpusItems: CorpusItem[],
+  activiteType: string,
+  activiteTitre: string,
+  seanceObjectifs: string[]
+): { corpus_ref: string; corpus_status: 'trouve'; _corpusItem: CorpusItem } | null {
+  if (!ACTIVITES_CORPUS.has(activiteType)) return null
+  if (corpusItems.length === 0) return null
+  if (corpusItems.length === 1) {
+    return { corpus_ref: corpusItems[0].id, corpus_status: 'trouve', _corpusItem: corpusItems[0] }
+  }
+
+  // Scorer chaque item contre le titre + objectifs de l'activité
+  const keywords = [activiteTitre, ...seanceObjectifs]
+    .join(' ')
+    .toLowerCase()
+    .split(/[\s,]+/)
+    .filter((w) => w.length > 3)
+
+  const scored = corpusItems.map((item) => {
+    const score = keywords.filter(
+      (k) =>
+        item.themes.some((t) => t.toLowerCase().includes(k)) ||
+        item.genres.some((g) => g.toLowerCase().includes(k)) ||
+        item.auteur.toLowerCase().includes(k) ||
+        item.oeuvre.toLowerCase().includes(k)
+    ).length
+    return { item, score }
+  })
+
+  const best = scored.sort((a, b) => b.score - a.score)[0]
+  return { corpus_ref: best.item.id, corpus_status: 'trouve', _corpusItem: best.item }
+}
+
+// Prompt pour suggestion IA quand aucun texte corpus n'est trouvé
+function buildSuggestionPrompt(
+  activiteTitre: string,
+  niveau: string,
+  theme: string,
+  objectif: string
+): LLMMessage[] {
+  return [
+    {
+      role: 'system',
+      content: `Tu es un expert en littérature française et en didactique du français.
+Quand on te demande de suggérer un texte, tu réponds UNIQUEMENT avec un objet JSON valide, sans commentaire.`,
+    },
+    {
+      role: 'user',
+      content: `Pour une activité de lecture intitulée "${activiteTitre}", destinée à des élèves de ${niveau}, sur le thème "${theme}" (objectif : ${objectif}), suggère UN extrait littéraire précis du corpus scolaire français.
+
+Réponds UNIQUEMENT avec ce JSON (rien d'autre) :
+{
+  "auteur": "Prénom Nom",
+  "oeuvre": "Titre exact",
+  "extrait_recommande": "Description précise de l'extrait (partie, chapitre, pages approximatives dans une édition courante)",
+  "pourquoi": "Justification pédagogique en 1-2 phrases",
+  "niveau_difficulte": "accessible",
+  "mots_approximatifs": 400
+}`,
+    },
+  ]
+}
+
+// Construit le bloc de contexte corpus à injecter dans les prompts de génération de ressources
+export function buildCorpusContextBlock(item: CorpusItem): string {
+  return [
+    '═══════════════════════════════════════════════════════════════',
+    'TEXTE SOURCE — À UTILISER TEL QUEL',
+    '(ne pas modifier, ne pas résumer, ne pas paraphraser)',
+    '',
+    `Auteur    : ${item.auteur}`,
+    `Œuvre     : ${item.oeuvre}`,
+    `Référence : ${item.edition_reference}${item.pages ? `, ${item.pages}` : ''}`,
+    '',
+    item.contenu,
+    '═══════════════════════════════════════════════════════════════',
+    '',
+    'Génère les ressources en te basant EXCLUSIVEMENT sur ce texte.',
+    'Toute citation doit être extraite mot pour mot du texte ci-dessus.',
+    'Indique la référence complète en bas de chaque ressource produite.',
+  ].join('\n')
+}
+
+async function searchCorpusForActivity(
+  activiteTitre: string,
+  activiteType: string,
+  niveau: string,
+  theme: string,
+  objectif: string,
+  llm: LLMProvider
+): Promise<{
+  corpus_ref?: string
+  corpus_status: 'non_requis' | 'trouve' | 'manquant' | 'manquant_sans_suggestion'
+  corpus_suggestion?: import('@/shared/schemas').CorpusSuggestion
+  _corpusItem?: CorpusItem
+}> {
+  if (!ACTIVITES_CORPUS.has(activiteType)) {
+    return { corpus_status: 'non_requis' }
+  }
+
+  const normalizedNiveau = normalizeNiveau(niveau)
+  const themeKeywords = theme.toLowerCase().split(/[\s,]+/).filter((w) => w.length > 3)
+
+  const results = searchCorpus({
+    niveaux: normalizedNiveau ? [normalizedNiveau] : [],
+    themes: themeKeywords.slice(0, 3),
+    limit: 3,
+  })
+
+  if (results.length > 0) {
+    return {
+      corpus_ref: results[0].id,
+      corpus_status: 'trouve',
+      _corpusItem: results[0],
+    }
+  }
+
+  // Aucun texte trouvé → demander une suggestion à l'IA
+  try {
+    const messages = buildSuggestionPrompt(activiteTitre, niveau, theme, objectif)
+    const resp = await llm.chat(messages, {
+      temperature: 0.3,
+      schema: CorpusSuggestionSchema,
+      schemaName: 'corpus_suggestion',
+    })
+    const parsed = CorpusSuggestionSchema.safeParse(
+      JSON.parse(resp.content.replace(/```json\n?|```/g, '').trim())
+    )
+    if (parsed.success) {
+      return { corpus_status: 'manquant', corpus_suggestion: parsed.data }
+    }
+  } catch {
+    // suggestion échouée → statut sans suggestion
+  }
+
+  return { corpus_status: 'manquant_sans_suggestion' }
+}
+
+async function assembleSequence(
+  workflowId: string,
+  arch: ArchitectOutput,
+  gen: GeneratorOutput,
+  llm: LLMProvider,
+  preselectedCorpusItems: CorpusItem[] = []
+): Promise<Sequence> {
+  const seances = await Promise.all(
+    arch.seances.map(async (s) => {
       const generated = gen.seances.find((gs) => gs.numero === s.numero)
       const rawActivites = generated?.activites || []
-      
-      const activites = rawActivites.map((act, actIdx) => {
-        const ressources = []
-        if (act.type === 'exercice') {
-          ressources.push({
-            id: `res-seance-${s.numero}-act-${actIdx}-exercice`,
-            titre: `Fiche d'exercices : ${act.titre}`,
-            type: 'exercice' as const,
-            format_exercice: 'libre' as const,
-            status: 'empty' as const,
-            contenu: '',
-            description: `Fiche d'exercices d'application sur la notion : ${act.titre}`
-          })
-          ressources.push({
-            id: `res-seance-${s.numero}-act-${actIdx}-correction`,
-            titre: `Fiche de correction : ${act.titre}`,
-            type: 'exercice' as const,
-            format_exercice: 'libre' as const,
-            status: 'empty' as const,
-            contenu: '',
-            description: `Corrigé détaillé de la fiche d'exercices`
-          })
-        } else if (act.type === 'lecture') {
-          ressources.push({
-            id: `res-seance-${s.numero}-act-${actIdx}-extrait`,
-            titre: `Extrait d'œuvre : ${act.titre}`,
-            type: 'extrait_oeuvre' as const,
-            status: 'empty' as const,
-            contenu: '',
-            description: `Texte littéraire d'étude pour l'activité de lecture`
-          })
-        }
-        return {
-          ...act,
-          ressources: act.ressources?.length ? act.ressources : ressources
-        }
-      })
 
-      // Ressources de séance (Cours + Bilan)
+      const activites = await Promise.all(
+        rawActivites.map(async (act, actIdx) => {
+          const ressources = []
+
+          if (act.type === 'exercice') {
+            ressources.push({
+              id: `res-seance-${s.numero}-act-${actIdx}-exercice`,
+              titre: `Fiche d'exercices : ${act.titre}`,
+              type: 'exercice' as const,
+              format_exercice: 'libre' as const,
+              status: 'empty' as const,
+              contenu: '',
+              description: `Fiche d'exercices d'application sur la notion : ${act.titre}`,
+            })
+            ressources.push({
+              id: `res-seance-${s.numero}-act-${actIdx}-correction`,
+              titre: `Fiche de correction : ${act.titre}`,
+              type: 'exercice' as const,
+              format_exercice: 'libre' as const,
+              status: 'empty' as const,
+              contenu: '',
+              description: `Corrigé détaillé de la fiche d'exercices`,
+            })
+          } else if (act.type === 'lecture') {
+            ressources.push({
+              id: `res-seance-${s.numero}-act-${actIdx}-extrait`,
+              titre: `Extrait d'œuvre : ${act.titre}`,
+              type: 'extrait_oeuvre' as const,
+              status: 'empty' as const,
+              contenu: '',
+              description: `Texte littéraire d'étude pour l'activité de lecture`,
+            })
+          }
+
+          // Corpus : pré-sélection prioritaire, sinon recherche autonome (fallback)
+          let corpusResult: {
+            corpus_ref?: string
+            corpus_status: 'non_requis' | 'trouve' | 'manquant' | 'manquant_sans_suggestion'
+            corpus_suggestion?: import('@/shared/schemas').CorpusSuggestion
+          }
+
+          if (preselectedCorpusItems.length > 0) {
+            const assigned = assignCorpusFromPreselection(
+              preselectedCorpusItems,
+              act.type,
+              act.titre,
+              s.objectifs
+            )
+            corpusResult = assigned ?? { corpus_status: 'non_requis' }
+          } else {
+            corpusResult = await searchCorpusForActivity(
+              act.titre,
+              act.type,
+              arch.niveau,
+              arch.theme,
+              s.objectifs[0] ?? arch.theme,
+              llm
+            )
+          }
+
+          return {
+            ...act,
+            ressources: act.ressources?.length ? act.ressources : ressources,
+            corpus_ref: corpusResult.corpus_ref,
+            corpus_status: corpusResult.corpus_status,
+            corpus_suggestion: corpusResult.corpus_suggestion,
+          }
+        })
+      )
+
       const seanceRessources = [
         {
           id: `res-seance-${s.numero}-cours`,
@@ -316,7 +502,7 @@ function assembleSequence(workflowId: string, arch: ArchitectOutput, gen: Genera
           type: 'cours' as const,
           status: 'empty' as const,
           contenu: '',
-          description: `Synthèse théorique complète pour la séance : ${s.titre}`
+          description: `Synthèse théorique complète pour la séance : ${s.titre}`,
         },
         {
           id: `res-seance-${s.numero}-bilan`,
@@ -324,8 +510,8 @@ function assembleSequence(workflowId: string, arch: ArchitectOutput, gen: Genera
           type: 'bilan' as const,
           status: 'empty' as const,
           contenu: '',
-          description: `Fiche bilan de fin de séance et points clés à retenir`
-        }
+          description: `Fiche bilan de fin de séance et points clés à retenir`,
+        },
       ]
 
       return {
@@ -337,7 +523,19 @@ function assembleSequence(workflowId: string, arch: ArchitectOutput, gen: Genera
         evaluation: undefined,
         ressources: seanceRessources,
       }
-    }),
+    })
+  )
+
+  return {
+    id: workflowId,
+    titre: arch.titre_sequence,
+    niveau: arch.niveau,
+    theme: arch.theme,
+    problematique: arch.problematique,
+    objectifs: arch.objectifs,
+    competences: arch.competences,
+    corpus_refs: preselectedCorpusItems.map((item) => item.id),
+    seances,
     evaluation_finale: arch.evaluation_finale || undefined,
     ressources: [],
   }
