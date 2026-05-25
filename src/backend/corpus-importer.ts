@@ -71,16 +71,33 @@ function validateMeta(meta: Record<string, unknown>, filename: string): string[]
     .map((f) => `Champ obligatoire manquant "${f}" dans ${filename}`)
 }
 
-let synced = false
+// Timestamp du dernier sync réussi (ms depuis epoch, 0 = jamais)
+let lastSyncAt = 0
+
+/**
+ * Détecte si le dossier corpus a été modifié depuis le dernier sync.
+ * Sur tous les OS, ajouter/supprimer un fichier met à jour le mtime du dossier.
+ * Coût : un seul appel fs.statSync, négligeable.
+ */
+function corpusDirChanged(): boolean {
+  try {
+    const mtime = fs.statSync(CORPUS_DIR).mtimeMs
+    return mtime > lastSyncAt
+  } catch {
+    return true // dossier inexistant → on laisse syncCorpusFromFiles le créer
+  }
+}
 
 export function syncCorpusFromFiles(force = false): SyncResult {
-  if (synced && !force) return { inserted: 0, updated: 0, unchanged: 0, deleted: 0, errors: [] }
+  if (!force && !corpusDirChanged()) {
+    return { inserted: 0, updated: 0, unchanged: 0, deleted: 0, errors: [] }
+  }
 
   const result: SyncResult = { inserted: 0, updated: 0, unchanged: 0, deleted: 0, errors: [] }
 
   if (!fs.existsSync(CORPUS_DIR)) {
     fs.mkdirSync(CORPUS_DIR, { recursive: true })
-    synced = true
+    lastSyncAt = Date.now()
     return result
   }
 
@@ -196,10 +213,10 @@ export function syncCorpusFromFiles(force = false): SyncResult {
     )
   }
 
-  synced = true
+  lastSyncAt = Date.now()
   return result
 }
 
 export function resetSyncFlag() {
-  synced = false
+  lastSyncAt = 0
 }

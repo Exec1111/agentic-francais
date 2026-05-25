@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
-import { motion } from 'framer-motion'
-import { BookOpen, AlertTriangle, Plus, ChevronRight, Sparkles } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { BookOpen, AlertTriangle, Plus, ChevronRight, ChevronDown, Sparkles, Search, Library } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import type { CorpusSuggestResponse } from '@/app/api/corpus/suggest/route'
+import type { CorpusItem } from '@/shared/schemas'
 
 interface CorpusSelectorProps {
   response: CorpusSuggestResponse
@@ -18,15 +19,70 @@ const NIVEAU_LABELS: Record<string, string> = {
   seconde: '2nde', premiere: '1re', terminale: 'Tle',
 }
 
-/** Vrai si aucun des niveaux du texte ne correspond aux niveaux recherchés. */
 function hasNiveauMismatch(itemNiveaux: string[], niveauxRecherches: string[]): boolean {
-  if (niveauxRecherches.length === 0) return false // niveau inconnu → pas d'avertissement
+  if (niveauxRecherches.length === 0) return false
   return !itemNiveaux.some((n) => niveauxRecherches.includes(n))
 }
 
-/** Formate la liste de niveaux d'un texte pour l'afficher dans le badge. */
 function formatNiveaux(niveaux: string[]): string {
   return niveaux.map((n) => NIVEAU_LABELS[n] ?? n).join(' / ')
+}
+
+// Carte réutilisée dans les deux sections (suggérés + browser)
+function CorpusItemCard({
+  item,
+  selected,
+  niveauxRecherches,
+  onToggle,
+}: {
+  item: Omit<CorpusItem, 'contenu'>
+  selected: boolean
+  niveauxRecherches: string[]
+  onToggle: () => void
+}) {
+  const mismatch = hasNiveauMismatch(item.niveaux, niveauxRecherches)
+  return (
+    <button
+      onClick={onToggle}
+      className={cn(
+        'w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-all',
+        selected
+          ? 'bg-emerald-950/40 border-emerald-700/50 text-emerald-300'
+          : 'bg-gray-900/40 border-gray-800 text-gray-400 hover:border-gray-700',
+      )}
+    >
+      {/* Checkbox */}
+      <div className={cn(
+        'h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors',
+        selected ? 'border-emerald-500 bg-emerald-500' : 'border-gray-600',
+      )}>
+        {selected && (
+          <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+          </svg>
+        )}
+      </div>
+
+      {/* Infos */}
+      <div className="flex-1 min-w-0">
+        <span className="font-medium text-sm block truncate">
+          {item.auteur}, <em>« {item.oeuvre} »</em>
+        </span>
+        <span className="text-xs opacity-60 block truncate">
+          {item.titre} · {item.genres.join(', ')}
+          {item.pages && ` · ${item.pages}`}
+        </span>
+        {mismatch && (
+          <span className="inline-flex items-center gap-1 mt-1.5 text-xs px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-400 border border-amber-700/40">
+            <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+            Prévu pour {formatNiveaux(item.niveaux)} — à adapter
+          </span>
+        )}
+      </div>
+
+      <BookOpen className="h-4 w-4 shrink-0 opacity-50" />
+    </button>
+  )
 }
 
 export function CorpusSelector({
@@ -36,8 +92,55 @@ export function CorpusSelector({
   isLoading = false,
 }: CorpusSelectorProps) {
   const [selected, setSelected] = useState<Set<string>>(
-    new Set(response.corpus_found.map((item) => item.id))
+    new Set(response.corpus_found.map((item) => item.id)),
   )
+
+  // === Browser état ===
+  const [browserOpen, setBrowserOpen] = useState(false)
+  const [browserItems, setBrowserItems] = useState<Omit<CorpusItem, 'contenu'>[] | null>(null)
+  const [browserLoading, setBrowserLoading] = useState(false)
+  const [browserSearch, setBrowserSearch] = useState('')
+
+  const suggestedIds = useMemo(
+    () => new Set(response.corpus_found.map((i) => i.id)),
+    [response.corpus_found],
+  )
+
+  const openBrowser = async () => {
+    setBrowserOpen(true)
+    if (browserItems !== null) return // déjà chargé
+    setBrowserLoading(true)
+    try {
+      const res = await fetch('/api/corpus')
+      const data = await res.json()
+      // Exclure les items déjà affichés dans la section "Disponibles"
+      setBrowserItems((data.items as Omit<CorpusItem, 'contenu'>[]).filter(
+        (i) => !suggestedIds.has(i.id),
+      ))
+    } catch {
+      setBrowserItems([])
+    } finally {
+      setBrowserLoading(false)
+    }
+  }
+
+  const closeBrowser = () => {
+    setBrowserOpen(false)
+    setBrowserSearch('')
+  }
+
+  const filteredBrowserItems = useMemo(() => {
+    const q = browserSearch.toLowerCase().trim()
+    if (!q) return browserItems ?? []
+    return (browserItems ?? []).filter(
+      (item) =>
+        item.auteur.toLowerCase().includes(q) ||
+        item.oeuvre.toLowerCase().includes(q) ||
+        item.titre.toLowerCase().includes(q) ||
+        item.themes.some((t) => t.toLowerCase().includes(q)) ||
+        item.genres.some((g) => g.toLowerCase().includes(q)),
+    )
+  }, [browserItems, browserSearch])
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -78,60 +181,21 @@ export function CorpusSelector({
         </button>
       </div>
 
-      {/* Textes trouvés dans le corpus */}
+      {/* Textes suggérés par le LLM */}
       {response.corpus_found.length > 0 ? (
         <div className="space-y-2">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-            Disponibles dans votre corpus
+            Suggéré depuis votre corpus
           </p>
-          {response.corpus_found.map((item) => {
-            const mismatch = hasNiveauMismatch(item.niveaux, response.niveaux_recherches)
-            return (
-              <button
-                key={item.id}
-                onClick={() => toggle(item.id)}
-                className={cn(
-                  'w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-all',
-                  selected.has(item.id)
-                    ? 'bg-emerald-950/40 border-emerald-700/50 text-emerald-300'
-                    : 'bg-gray-900/40 border-gray-800 text-gray-400 hover:border-gray-700'
-                )}
-              >
-                {/* Checkbox */}
-                <div className={cn(
-                  'h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors',
-                  selected.has(item.id) ? 'border-emerald-500 bg-emerald-500' : 'border-gray-600'
-                )}>
-                  {selected.has(item.id) && (
-                    <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </div>
-
-                {/* Infos texte */}
-                <div className="flex-1 min-w-0">
-                  <span className="font-medium text-sm block truncate">
-                    {item.auteur}, <em>« {item.oeuvre} »</em>
-                  </span>
-                  <span className="text-xs opacity-60 block truncate">
-                    {item.titre} · {item.genres.join(', ')}
-                    {item.pages && ` · ${item.pages}`}
-                  </span>
-
-                  {/* Badge niveau décalé */}
-                  {mismatch && (
-                    <span className="inline-flex items-center gap-1 mt-1.5 text-xs px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-400 border border-amber-700/40">
-                      <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
-                      Prévu pour {formatNiveaux(item.niveaux)} — à adapter
-                    </span>
-                  )}
-                </div>
-
-                <BookOpen className="h-4 w-4 shrink-0 opacity-50" />
-              </button>
-            )
-          })}
+          {response.corpus_found.map((item) => (
+            <CorpusItemCard
+              key={item.id}
+              item={item}
+              selected={selected.has(item.id)}
+              niveauxRecherches={response.niveaux_recherches}
+              onToggle={() => toggle(item.id)}
+            />
+          ))}
         </div>
       ) : (
         <div className="flex items-center gap-2 text-sm text-gray-500 bg-gray-900/30 rounded-lg p-3 border border-gray-800">
@@ -139,6 +203,67 @@ export function CorpusSelector({
           Aucun texte trouvé dans votre corpus pour ce thème.
         </div>
       )}
+
+      {/* ── Browser du corpus ── */}
+      <div className="border-t border-gray-800 pt-4">
+        <button
+          onClick={browserOpen ? closeBrowser : openBrowser}
+          className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 transition-colors w-full"
+        >
+          <Library className="h-3.5 w-3.5" />
+          <span>Parcourir tout le corpus</span>
+          {browserOpen
+            ? <ChevronDown className="h-3 w-3 ml-auto" />
+            : <ChevronRight className="h-3 w-3 ml-auto" />}
+        </button>
+
+        <AnimatePresence>
+          {browserOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <div className="pt-3 space-y-3">
+                {/* Barre de recherche */}
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={browserSearch}
+                    onChange={(e) => setBrowserSearch(e.target.value)}
+                    placeholder="Rechercher par auteur, titre, thème…"
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-8 pr-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-gray-500"
+                  />
+                </div>
+
+                {/* Résultats */}
+                {browserLoading ? (
+                  <p className="text-xs text-gray-500 text-center py-4">Chargement…</p>
+                ) : filteredBrowserItems.length === 0 ? (
+                  <p className="text-xs text-gray-600 text-center py-4">
+                    {browserSearch ? 'Aucun résultat pour cette recherche.' : 'Tous les textes du corpus sont déjà proposés ci-dessus.'}
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                    {filteredBrowserItems.map((item) => (
+                      <CorpusItemCard
+                        key={item.id}
+                        item={item}
+                        selected={selected.has(item.id)}
+                        niveauxRecherches={response.niveaux_recherches}
+                        onToggle={() => toggle(item.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* Suggestions IA */}
       {response.suggestions.length > 0 && (
@@ -182,7 +307,7 @@ export function CorpusSelector({
             'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all',
             selected.size > 0
               ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20'
-              : 'bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700'
+              : 'bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700',
           )}
         >
           <Sparkles className="h-3.5 w-3.5" />
