@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Send, Sparkles, RotateCcw, Download, Terminal, Save, Loader2 } from 'lucide-react'
-import { WorkflowPipeline } from '@/frontend/components/WorkflowPipeline'
+import { WorkflowPipeline, WorkflowProgress } from '@/frontend/components/WorkflowPipeline'
 import { SequenceEditor } from '@/frontend/components/SequenceEditor'
 import { ReviewPanel } from '@/frontend/components/ReviewPanel'
 import { ProviderSwitch } from '@/frontend/components/ProviderSwitch'
@@ -40,6 +40,7 @@ export default function HomePage() {
     { name: 'reviewer', status: 'idle', logs: [] },
   ])
   const [reactSteps, setReactSteps] = useState<ReactStepData[]>([])
+  const [progress, setProgress] = useState<WorkflowProgress | null>(null)
   const editor = useSequenceEditor()
   const [review, setReview] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
@@ -75,6 +76,7 @@ export default function HomePage() {
     setError(null)
     setGenerationStep('idle')
     setCorpusSuggest(null)
+    setProgress(null)
   }, [])
 
   // Étape 1 : suggérer le corpus avant de lancer le workflow
@@ -82,6 +84,7 @@ export default function HomePage() {
     if (!demande.trim() || isRunning) return
     resetState()
     setGenerationStep('suggesting')
+    setProgress({ percent: 3, label: 'Recherche du corpus…' })
     try {
       const res = await fetch('/api/corpus/suggest', {
         method: 'POST',
@@ -136,6 +139,11 @@ export default function HomePage() {
           const data = JSON.parse(line.slice(6))
 
           switch (data.type) {
+            // === Progression ===
+            case 'workflow_start':
+              setProgress({ percent: 5, label: 'Démarrage du workflow…' })
+              break
+
             // === Événements ReAct ===
             case 'react_thought':
               setReactSteps(prev => {
@@ -147,11 +155,21 @@ export default function HomePage() {
               })
               break
 
-            case 'react_action':
+            case 'react_action': {
               setReactSteps(prev => prev.map(s =>
                 s.step === data.step ? { ...s, action: data.action, actionInput: data.input, status: 'acting' } : s
               ))
+              const ACTION_PROGRESS: Record<string, WorkflowProgress> = {
+                analyser_demande:    { percent: 10, label: 'Analyse de la demande…' },
+                construire_sequence: { percent: 30, label: 'Construction de la séquence…' },
+                generer_activites:   { percent: 55, label: 'Génération des activités…' },
+                verifier_qualite:    { percent: 78, label: 'Vérification qualité…' },
+                ameliorer:           { percent: 65, label: 'Amélioration en cours…' },
+                terminer:            { percent: 96, label: 'Finalisation…' },
+              }
+              if (ACTION_PROGRESS[data.action]) setProgress(ACTION_PROGRESS[data.action])
               break
+            }
 
             case 'react_observation':
               setReactSteps(prev => prev.map(s =>
@@ -172,11 +190,19 @@ export default function HomePage() {
               ))
               break
 
-            case 'agent_done':
+            case 'agent_done': {
               setAgents(prev => prev.map(a =>
                 a.name === data.agent ? { ...a, status: 'done' } : a
               ))
+              const AGENT_PROGRESS: Record<string, WorkflowProgress> = {
+                orchestrateur: { percent: 25, label: 'Paramètres extraits' },
+                architecte:    { percent: 52, label: 'Structure définie' },
+                generateur:    { percent: 77, label: 'Activités générées' },
+                reviewer:      { percent: 92, label: 'Révision terminée' },
+              }
+              if (AGENT_PROGRESS[data.agent]) setProgress(AGENT_PROGRESS[data.agent])
               break
+            }
 
             case 'agent_error':
               setAgents(prev => prev.map(a =>
@@ -188,6 +214,7 @@ export default function HomePage() {
               if (data.sequence) editor.setSequence(data.sequence)
               setReview(data.review)
               setGenerationStep('done')
+              setProgress({ percent: 100, label: 'Séquence prête !' })
               break
 
             case 'workflow_error':
@@ -277,7 +304,7 @@ export default function HomePage() {
           {/* Colonne gauche : Pipeline + Trace ReAct */}
           <div className="lg:col-span-4 xl:col-span-3">
             <div className="sticky top-20 space-y-6">
-              <WorkflowPipeline agents={agents} />
+              <WorkflowPipeline agents={agents} progress={progress} isRunning={isRunning} />
               <ReactTrace steps={reactSteps} />
             </div>
           </div>

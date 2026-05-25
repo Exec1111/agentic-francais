@@ -14,18 +14,59 @@ interface AgentState {
   logs: string[]
 }
 
+export interface WorkflowProgress {
+  percent: number
+  label: string
+}
+
 interface WorkflowPipelineProps {
   agents: AgentState[]
+  progress?: WorkflowProgress | null
+  isRunning?: boolean
 }
 
 const PIPELINE_ORDER: AgentName[] = ['orchestrateur', 'architecte', 'generateur', 'reviewer']
 
-export function WorkflowPipeline({ agents }: WorkflowPipelineProps) {
+export function WorkflowPipeline({ agents, progress, isRunning }: WorkflowPipelineProps) {
+  const showProgress = isRunning || (progress !== null && progress !== undefined)
+  const percent = progress?.percent ?? 0
+  const isDone = percent === 100
+
   return (
     <div className="space-y-3">
       <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">
         Pipeline Agentique
       </h2>
+
+      {/* Barre de progression */}
+      {showProgress && (
+        <div className="mb-5 space-y-1.5">
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-gray-400 truncate pr-2">
+              {progress?.label ?? 'Initialisation…'}
+            </span>
+            <span className={cn(
+              'text-xs font-mono tabular-nums shrink-0',
+              isDone ? 'text-green-400' : 'text-gray-500',
+            )}>
+              {percent}%
+            </span>
+          </div>
+          <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+            <motion.div
+              className={cn(
+                'h-full rounded-full',
+                isDone
+                  ? 'bg-green-500'
+                  : 'bg-gradient-to-r from-primary-600 via-primary-500 to-purple-500',
+              )}
+              initial={{ width: '0%' }}
+              animate={{ width: `${percent}%` }}
+              transition={{ duration: 0.45, ease: 'easeOut' }}
+            />
+          </div>
+        </div>
+      )}
 
       {PIPELINE_ORDER.map((agentName, index) => {
         const agent = agents.find(a => a.name === agentName) || {
