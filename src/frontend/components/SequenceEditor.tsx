@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   BookOpen, Target, Award, Clock, FileText, Plus, Trash2,
-  ChevronUp, ChevronDown, Undo2, Redo2, AlertTriangle,
+  ChevronUp, ChevronDown, Undo2, Redo2, AlertTriangle, RefreshCw, Loader2,
 } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import { EditableText } from './EditableText'
@@ -55,6 +55,59 @@ interface SequenceEditorProps {
 export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
   const { sequence } = editor
   const [drawer, setDrawer] = useState<DrawerState | null>(null)
+
+  const handleRegenerateActivite = useCallback(async (
+    seanceIndex: number,
+    activiteIndex: number,
+    motif: string,
+  ) => {
+    if (!sequence) return
+    const seance = sequence.seances[seanceIndex]
+    const activite = seance.activites[activiteIndex]
+
+    const res = await fetch('/api/generate/activity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        seanceContext: {
+          titre_sequence: sequence.titre,
+          niveau: sequence.niveau,
+          theme: sequence.theme,
+          objectifs_sequence: sequence.objectifs,
+          seanceNumero: seance.numero,
+          seanceTitre: seance.titre,
+          seanceObjectifs: seance.objectifs,
+          seanceDuree: seance.duree,
+          autresActivites: seance.activites
+            .filter((_, i) => i !== activiteIndex)
+            .map((a) => ({ titre: a.titre, type: a.type, duree: a.duree })),
+        },
+        activiteActuelle: {
+          titre: activite.titre,
+          type: activite.type,
+          duree: activite.duree,
+          consigne: activite.consigne,
+        },
+        motif,
+        provider,
+        corpus_refs: sequence.corpus_refs,
+      }),
+    })
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || 'Erreur serveur')
+    }
+
+    const data = await res.json()
+    editor.replaceActivite(seanceIndex, activiteIndex, {
+      ...data.activite,
+      ressources: activite.ressources || [],
+      corpus_ref: activite.corpus_ref,
+      corpus_status: activite.corpus_status,
+      corpus_suggestion: activite.corpus_suggestion,
+    })
+  }, [sequence, provider, editor])
 
   const openDrawer = useCallback((
     ressource: Ressource,
@@ -232,6 +285,7 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
             totalSeances={sequence.seances.length}
             editor={editor}
             onOpenDrawer={openDrawer}
+            onRegenerate={handleRegenerateActivite}
             corpusCount={sequence.corpus_refs?.length ?? 0}
           />
         ))}
@@ -284,6 +338,7 @@ function SeanceBlock({
   totalSeances,
   editor,
   onOpenDrawer,
+  onRegenerate,
   corpusCount,
 }: {
   seance: any
@@ -291,6 +346,7 @@ function SeanceBlock({
   totalSeances: number
   editor: EditorReturn
   onOpenDrawer: (r: Ressource, si: number, ai: number | undefined, seanceTitre: string, activiteTitre?: string, activiteType?: string, corpusRef?: string) => void
+  onRegenerate: (si: number, ai: number, motif: string) => Promise<void>
   corpusCount: number
 }) {
   const [collapsed, setCollapsed] = useState(false)
@@ -409,6 +465,7 @@ function SeanceBlock({
                   totalActivites={seance.activites.length}
                   editor={editor}
                   onOpenDrawer={onOpenDrawer}
+                  onRegenerate={onRegenerate}
                   seanceTitre={seance.titre}
                   corpusCount={corpusCount}
                 />
@@ -444,6 +501,7 @@ function ActiviteBlock({
   totalActivites,
   editor,
   onOpenDrawer,
+  onRegenerate,
   seanceTitre,
   corpusCount,
 }: {
@@ -453,14 +511,41 @@ function ActiviteBlock({
   totalActivites: number
   editor: EditorReturn
   onOpenDrawer: (r: Ressource, si: number, ai: number | undefined, seanceTitre: string, activiteTitre?: string, activiteType?: string, corpusRef?: string) => void
+  onRegenerate: (si: number, ai: number, motif: string) => Promise<void>
   seanceTitre: string
   corpusCount: number
 }) {
+  const [isRejecting, setIsRejecting] = useState(false)
+  const [motif, setMotif] = useState('')
+  const [isRegenerating, setIsRegenerating] = useState(false)
+  const [regenError, setRegenError] = useState<string | null>(null)
+
+  const handleRegenerate = async () => {
+    setIsRegenerating(true)
+    setRegenError(null)
+    try {
+      await onRegenerate(seanceIndex, activiteIndex, motif)
+      setIsRejecting(false)
+      setMotif('')
+    } catch (err) {
+      setRegenError(err instanceof Error ? err.message : 'Erreur lors de la régénération')
+    } finally {
+      setIsRegenerating(false)
+    }
+  }
+
+  const toggleReject = () => {
+    setIsRejecting((v) => !v)
+    setMotif('')
+    setRegenError(null)
+  }
+
   return (
     <div
       className={cn(
         'rounded-lg border p-3 group',
         TYPE_COLORS[activite.type] || 'bg-gray-800/50 text-gray-300 border-gray-700',
+        isRegenerating && 'opacity-60 pointer-events-none',
       )}
     >
       <div className="flex items-center justify-between mb-1">
@@ -483,7 +568,10 @@ function ActiviteBlock({
             </button>
           </div>
 
-          <FileText className="h-3.5 w-3.5 shrink-0" />
+          {isRegenerating
+            ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+            : <FileText className="h-3.5 w-3.5 shrink-0" />
+          }
           <EditableText
             value={activite.titre}
             onSave={(v) => editor.updateField({ level: 'activite', seanceIndex, activiteIndex, field: 'titre' }, v)}
@@ -507,6 +595,19 @@ function ActiviteBlock({
             className="text-xs w-6 text-center"
           />
           <span>min</span>
+          {/* Rejeter & régénérer */}
+          <button
+            onClick={toggleReject}
+            className={cn(
+              'p-0.5 transition-all',
+              isRejecting
+                ? 'opacity-100 text-amber-400'
+                : 'opacity-0 group-hover:opacity-100 hover:text-amber-400',
+            )}
+            title="Rejeter et régénérer"
+          >
+            <RefreshCw className="h-3 w-3" />
+          </button>
           <button
             onClick={() => editor.removeActivite(seanceIndex, activiteIndex)}
             className="p-0.5 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
@@ -556,6 +657,59 @@ function ActiviteBlock({
         }}
         onRemove={(id) => editor.removeRessource(seanceIndex, activiteIndex, id)}
       />
+
+      {/* Panel de rejet / régénération */}
+      <AnimatePresence>
+        {isRejecting && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-3 pt-3 border-t border-current/10">
+              <p className="text-xs font-medium opacity-70 mb-1.5">
+                Motif du rejet <span className="opacity-50 font-normal">(optionnel)</span>
+              </p>
+              <textarea
+                value={motif}
+                onChange={(e) => setMotif(e.target.value)}
+                placeholder="Ex : Trop simple, consigne peu claire, type inadapté au niveau…"
+                className="w-full bg-black/20 rounded-lg px-3 py-2 text-xs placeholder:opacity-30 border border-current/20 focus:outline-none resize-none"
+                rows={2}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.ctrlKey) handleRegenerate()
+                  if (e.key === 'Escape') toggleReject()
+                }}
+              />
+              {regenError && (
+                <p className="text-xs text-red-400 mt-1.5">{regenError}</p>
+              )}
+              <div className="flex justify-end gap-2 mt-2">
+                <button
+                  onClick={toggleReject}
+                  disabled={isRegenerating}
+                  className="px-3 py-1.5 rounded-lg text-xs opacity-60 hover:opacity-100 transition-opacity disabled:pointer-events-none"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={handleRegenerate}
+                  disabled={isRegenerating}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/30 border border-current/20 text-xs font-medium hover:bg-black/50 transition-all disabled:opacity-50"
+                >
+                  {isRegenerating
+                    ? <><Loader2 className="h-3 w-3 animate-spin" />Génération…</>
+                    : <><RefreshCw className="h-3 w-3" />Régénérer</>
+                  }
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

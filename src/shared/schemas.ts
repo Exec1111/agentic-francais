@@ -40,7 +40,8 @@ export const CorpusSuggestionSchema = z.object({
   extrait_recommande: z.string(),
   pourquoi: z.string(),
   niveau_difficulte: z.enum(['accessible', 'standard', 'exigeant']),
-  mots_approximatifs: z.number().optional(),
+  // nullable (pas optional) : OpenAI structured outputs exige que TOUS les champs soient dans required
+  mots_approximatifs: z.number().nullable(),
 })
 
 // Schéma de sortie du LLM-juge de pertinence corpus
@@ -49,7 +50,10 @@ export const CorpusRankingItemSchema = z.object({
   score: z.number().min(0).max(10),
   raison: z.string(),
 })
-export const CorpusRankingSchema = z.array(CorpusRankingItemSchema)
+// OpenAI structured outputs exige un objet à la racine (pas un tableau nu)
+export const CorpusRankingSchema = z.object({
+  items: z.array(CorpusRankingItemSchema),
+})
 
 export type CorpusItem = z.infer<typeof CorpusItemSchema>
 export type CorpusQuery = z.infer<typeof CorpusQuerySchema>

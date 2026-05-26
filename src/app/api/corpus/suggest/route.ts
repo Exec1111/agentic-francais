@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createLLMProvider, LLMMessage } from '@/backend/llm-provider'
+import { createLLMProvider } from '@/backend/llm-provider'
 import { searchCorpus, expandNiveauxForSearch } from '@/backend/repositories/corpus-repo'
 import { rankCorpusWithLLM } from '@/backend/corpus-ranker'
 import { OrchestratorOutputSchema, CorpusSuggestionSchema, CorpusItem } from '@/shared/schemas'
+import { buildExtractParamsMessages, buildCorpusSuggestionMessages } from '@/backend/prompts/corpus-suggest'
 
 export type CorpusSuggestResponse = {
   niveau: string
@@ -16,7 +17,7 @@ export type CorpusSuggestResponse = {
     extrait_recommande: string
     pourquoi: string
     niveau_difficulte: 'accessible' | 'standard' | 'exigeant'
-    mots_approximatifs?: number
+    mots_approximatifs: number | null
   }[]
 }
 
@@ -31,14 +32,7 @@ export async function POST(request: NextRequest) {
     const llm = createLLMProvider(provider)
 
     // === Étape 1 : extraire niveau + thème depuis la demande ===
-    const extractMessages: LLMMessage[] = [
-      {
-        role: 'system',
-        content: `Extrais le niveau scolaire et le thème principal d'une demande pédagogique.
-Réponds UNIQUEMENT avec un objet JSON valide contenant : niveau, theme, nombre_seances (défaut 5), contraintes (tableau vide si aucune), evaluation_finale (true par défaut), problematique_suggeree (chaîne vide si non précisée).`,
-      },
-      { role: 'user', content: demande },
-    ]
+    const extractMessages = buildExtractParamsMessages(demande)
     const extractResp = await llm.chat(extractMessages, {
       temperature: 0.2,
       schema: OrchestratorOutputSchema,
@@ -72,29 +66,7 @@ Réponds UNIQUEMENT avec un objet JSON valide contenant : niveau, theme, nombre_
 
     if (found.length < 2) {
       try {
-        const suggMessages: LLMMessage[] = [
-          {
-            role: 'system',
-            content: `Tu es un expert en littérature française scolaire. Suggère des textes littéraires pertinents pour une séquence pédagogique. Réponds UNIQUEMENT avec un tableau JSON.`,
-          },
-          {
-            role: 'user',
-            content: `Séquence pour des élèves de ${niveau}, sur le thème "${theme}".
-${found.length > 0 ? `Textes déjà disponibles : ${found.map((f) => `${f.auteur} — ${f.oeuvre}`).join(', ')}. Propose des textes COMPLÉMENTAIRES.` : 'Propose 2 textes essentiels pour cette séquence.'}
-
-Réponds UNIQUEMENT avec ce tableau JSON (2 éléments max) :
-[
-  {
-    "auteur": "Prénom Nom",
-    "oeuvre": "Titre exact",
-    "extrait_recommande": "Description précise de l'extrait recommandé",
-    "pourquoi": "Justification pédagogique en 1 phrase",
-    "niveau_difficulte": "accessible",
-    "mots_approximatifs": 300
-  }
-]`,
-          },
-        ]
+        const suggMessages = buildCorpusSuggestionMessages(niveau, theme, found)
         const suggResp = await llm.chat(suggMessages, { temperature: 0.4 })
         const cleaned = suggResp.content.replace(/```json\n?|```/g, '').trim()
         const parsed = JSON.parse(cleaned)

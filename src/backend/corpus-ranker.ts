@@ -1,6 +1,7 @@
-import { LLMProvider, LLMMessage } from './llm-provider'
+import { LLMProvider } from './llm-provider'
 import { validateLLMOutput } from './validation'
 import { CorpusRankingSchema, CorpusItem } from '@/shared/schemas'
+import { buildCorpusRankerMessages } from './prompts/corpus-ranker'
 
 /**
  * Utilise le LLM pour noter la pertinence de chaque texte du corpus
@@ -25,39 +26,7 @@ export async function rankCorpusWithLLM(
 ): Promise<Array<{ item: CorpusItem; score: number; raison: string }>> {
   if (items.length === 0) return []
 
-  // Résumé compact de chaque texte (métadonnées uniquement, pas le contenu)
-  const textesList = items
-    .map(
-      (it) =>
-        `- id: "${it.id}" | ${it.auteur}, « ${it.oeuvre} » (${it.annee_publication})` +
-        ` | genres: ${it.genres.join(', ')} | thèmes: ${it.themes.join(', ')}`
-    )
-    .join('\n')
-
-  const messages: LLMMessage[] = [
-    {
-      role: 'system',
-      content: `Tu es un expert en littérature française et en pédagogie scolaire.
-Tu évalues la pertinence de textes littéraires pour une séquence pédagogique.
-
-Règles de notation (score de 0 à 10) :
-- 8-10 : texte central, directement en lien avec le thème et le niveau
-- 5-7  : texte pertinent mais connexe (lien indirect ou niveau à adapter)
-- 0-4  : texte peu ou pas pertinent pour cette séquence
-
-Tu dois noter TOUS les textes fournis, même les non-pertinents.`,
-    },
-    {
-      role: 'user',
-      content: `Séquence pédagogique :
-- Niveau : ${niveau}
-- Thème : ${theme}
-- Demande complète : "${demande}"
-
-Textes disponibles dans le corpus :
-${textesList}`,
-    },
-  ]
+  const messages = buildCorpusRankerMessages(items, niveau, theme, demande)
 
   const chatOptions = {
     temperature: 0.1,
@@ -77,8 +46,8 @@ ${textesList}`,
     maxRetries: 1,
   })
 
-  // Joindre les scores aux items d'origine (ignorer les IDs inconnus du LLM)
-  const scoreMap = new Map(ranked.map((r) => [r.id, r]))
+  // Désemballer le tableau depuis l'enveloppe objet imposée par OpenAI structured outputs
+  const scoreMap = new Map(ranked.items.map((r) => [r.id, r]))
 
   return items
     .map((item) => {
