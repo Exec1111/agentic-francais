@@ -67,8 +67,33 @@ export const RessourceTypeSchema = z.enum([
   'bilan',
   'extrait_oeuvre',
   'oeuvre_complete',
-  'exercice'
+  'exercice',
+  'grille_evaluation',
+  'fiche_methode',
+  'fiche_lecture',
+  'carte_mentale',
+  'dictee',
 ])
+
+export const RessourceAudienceSchema = z.enum(['eleve', 'professeur'])
+
+// Ressource structurée (nouveau système — stockée dans la table `ressources`)
+export const RessourceStructureeSchema = z.object({
+  id: z.string(),
+  activite_id: z.string().optional(),
+  type: RessourceTypeSchema,
+  audience: RessourceAudienceSchema,
+  paired_with: z.string().optional(),   // id de l'autre version de la paire
+  contenu_json: z.record(z.unknown()),  // contenu structuré selon le type
+  contenu_markdown: z.string(),         // rendu Markdown prêt à afficher / exporter
+  created_at: z.string().optional(),
+})
+
+// Réponse API : une paire de ressources (prof + élève optionnel)
+export const RessourcePaireSchema = z.object({
+  professeur: RessourceStructureeSchema,
+  eleve: RessourceStructureeSchema.optional(),
+})
 
 export const ExerciceFormatSchema = z.enum([
   'texte_a_trous',
@@ -192,6 +217,9 @@ export const ReactDecisionSchema = z.object({
 
 export type Ressource = z.infer<typeof RessourceSchema>
 export type RessourceType = z.infer<typeof RessourceTypeSchema>
+export type RessourceAudience = z.infer<typeof RessourceAudienceSchema>
+export type RessourceStructuree = z.infer<typeof RessourceStructureeSchema>
+export type RessourcePaire = z.infer<typeof RessourcePaireSchema>
 export type ExerciceFormat = z.infer<typeof ExerciceFormatSchema>
 export type Activite = z.infer<typeof ActiviteSchema>
 export type Seance = z.infer<typeof SeanceSchema>

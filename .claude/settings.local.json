@@ -10,7 +10,9 @@
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\julie\\\\CascadeProjects\\\\windsurf-project\\\\agentic-francais\" -Force)",
       "Bash(Select-Object -Property Name, PSIsContainer)",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\julie\\\\CascadeProjects\\\\windsurf-project\\\\agentic-francais\" -Directory)",
-      "Bash(Select-Object Name)"
+      "Bash(Select-Object Name)",
+      "Bash(dir \"src\\\\app\\\\api\\\\resources\\\\[id]\")",
+      "Bash(findstr /n \"updateRessourceMarkdown\" src\\\\backend\\\\repositories\\\\resource-repo.ts)"
     ]
   }
 }

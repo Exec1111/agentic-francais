@@ -1,0 +1,704 @@
+'use client'
+
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  X, Sparkles, GraduationCap, User, Edit3, Eye,
+  Printer, CheckCircle2, Loader2, Plus, AlertCircle, Save,
+} from 'lucide-react'
+import { cn } from '@/shared/utils'
+import type { RessourcePaire, RessourceStructuree, RessourceType } from '@/shared/schemas'
+
+// ── Config des types ───────────────────────────────────────────────────────────
+
+const TYPE_CONFIG: Record<string, { label: string; color: string; activeColor: string }> = {
+  cours:             { label: 'Cours',               color: 'border-blue-700/40 text-blue-400',    activeColor: 'bg-blue-600' },
+  bilan:             { label: 'Bilan',               color: 'border-green-700/40 text-green-400',  activeColor: 'bg-green-600' },
+  extrait_oeuvre:    { label: "Extrait d'œuvre",     color: 'border-purple-700/40 text-purple-400',activeColor: 'bg-purple-600' },
+  oeuvre_complete:   { label: 'Texte complet',       color: 'border-amber-700/40 text-amber-400',  activeColor: 'bg-amber-600' },
+  exercice:          { label: 'Exercice',            color: 'border-pink-700/40 text-pink-400',    activeColor: 'bg-pink-600' },
+  grille_evaluation: { label: "Grille d'évaluation", color: 'border-orange-700/40 text-orange-400',activeColor: 'bg-orange-600' },
+  fiche_methode:     { label: 'Fiche méthode',       color: 'border-cyan-700/40 text-cyan-400',    activeColor: 'bg-cyan-600' },
+  fiche_lecture:     { label: 'Fiche de lecture',    color: 'border-indigo-700/40 text-indigo-400',activeColor: 'bg-indigo-600' },
+  carte_mentale:     { label: 'Carte mentale',       color: 'border-teal-700/40 text-teal-400',    activeColor: 'bg-teal-600' },
+  dictee:            { label: 'Dictée (prof)',        color: 'border-rose-700/40 text-rose-400',    activeColor: 'bg-rose-600' },
+}
+
+const DEFAULT_TITLES: Record<string, string> = {
+  cours:             'Cours théorique',
+  bilan:             'Bilan de séance',
+  extrait_oeuvre:    "Extrait d'œuvre",
+  oeuvre_complete:   'Texte court complet',
+  exercice:          "Fiche d'exercice",
+  grille_evaluation: "Grille d'évaluation",
+  fiche_methode:     'Fiche méthode',
+  fiche_lecture:     'Fiche de lecture',
+  carte_mentale:     'Carte mentale',
+  dictee:            'Dictée',
+}
+
+// ── Types props ────────────────────────────────────────────────────────────────
+
+export interface ResourcePanelContext {
+  sequenceTitle: string
+  niveau: string
+  theme: string
+  seanceNumero: number
+  seanceTitle: string
+  activiteId?: string
+  activiteTitre: string
+  activiteType: string
+  activiteConsigne: string
+  corpusRef?: string
+}
+
+interface ResourcePanelProps {
+  isOpen: boolean
+  onClose: () => void
+  context: ResourcePanelContext
+  provider?: string
+}
+
+// ── Markdown renderer (léger, dédié aux ressources pédagogiques) ───────────────
+
+function renderMarkdown(md: string): string {
+  if (!md) return ''
+  let html = md
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/^### (.*$)/gim, '<h4 class="text-md font-semibold text-gray-200 mt-5 mb-2">$1</h4>')
+    .replace(/^## (.*$)/gim, '<h3 class="text-lg font-bold text-blue-400 mt-6 mb-3 border-b border-gray-800/50 pb-1">$1</h3>')
+    .replace(/^# (.*$)/gim, '<h2 class="text-xl font-extrabold text-white mt-7 mb-4 pb-2 border-b border-gray-800">$1</h2>')
+    .replace(/^\&gt;\s?(.*$)/gim, '<blockquote class="border-l-4 border-blue-500 bg-blue-500/5 px-4 py-2.5 my-4 rounded-r text-gray-300 italic font-serif leading-relaxed">$1</blockquote>')
+    .replace(/^\s*-\s?\[ \]\s?(.*$)/gim, '<div class="flex items-start gap-2 my-2"><input type="checkbox" disabled class="mt-1 rounded border-gray-700 bg-gray-800" /><span class="text-gray-300 text-sm">$1</span></div>')
+    .replace(/^\s*-\s?(.*$)/gim, '<li class="list-disc ml-5 my-1 text-gray-300 text-sm">$1</li>')
+    .replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/_{2}(.*?)_{2}/g, '<u>$1</u>')
+    .replace(/_{60,}/g, '<div class="border-b border-dashed border-gray-700 my-3 w-full"></div>')
+
+  // Tableaux
+  html = html.replace(/((?:\|[^\n]*\|(?:\n|$))+)/g, (match) => {
+    const lines = match.trim().split('\n').filter(Boolean)
+    if (lines.length < 2) return match
+    const hasSep = lines[1].includes('-')
+    const startIdx = hasSep ? 2 : 1
+    const headers = lines[0].split('|').map(x => x.trim()).filter((_, i, a) => i > 0 && i < a.length - 1)
+    const headerHtml = `<thead><tr class="bg-gray-800/80">${headers.map(h => `<th class="p-2 text-left text-xs font-semibold text-gray-300 uppercase">${h}</th>`).join('')}</tr></thead>`
+    const bodyHtml = `<tbody>${lines.slice(startIdx).map((line, idx) => {
+      const cols = line.split('|').map(x => x.trim()).filter((_, i, a) => i > 0 && i < a.length - 1)
+      return `<tr class="${idx % 2 === 0 ? 'bg-gray-900/30' : ''} border-b border-gray-800/40">${cols.map(c => `<td class="p-2 text-sm text-gray-300">${c}</td>`).join('')}</tr>`
+    }).join('')}</tbody>`
+    return `<div class="overflow-x-auto my-4 rounded-lg border border-gray-800"><table class="min-w-full">${headerHtml}${bodyHtml}</table></div>`
+  })
+
+  // Paragraphes
+  const paragraphs = html.split(/\n\n+/)
+  html = paragraphs.map(p => {
+    const t = p.trim()
+    if (!t) return ''
+    if (/^<(h[1-6]|blockquote|li|div|table)/.test(t)) return p
+    return `<p class="my-3 text-gray-300 leading-relaxed text-sm">${p.replace(/\n/g, '<br />')}</p>`
+  }).join('\n')
+
+  return html
+}
+
+// ── Utilitaire : grouper resources plates en paires ────────────────────────────
+
+function groupIntoPairs(resources: RessourceStructuree[]): RessourcePaire[] {
+  const pairs: RessourcePaire[] = []
+  const seen = new Set<string>()
+
+  for (const r of resources) {
+    if (seen.has(r.id)) continue
+    if (r.audience === 'professeur') {
+      seen.add(r.id)
+      const eleve = r.paired_with ? resources.find(x => x.id === r.paired_with) : undefined
+      if (eleve) seen.add(eleve.id)
+      pairs.push({ professeur: r, eleve })
+    }
+  }
+
+  // Ressources sans paire prof (TEACHER_ONLY comme dictée)
+  for (const r of resources) {
+    if (!seen.has(r.id)) {
+      seen.add(r.id)
+      pairs.push({ professeur: r })
+    }
+  }
+
+  return pairs
+}
+
+// ── Impression PDF ─────────────────────────────────────────────────────────────
+
+function printResource(resource: RessourceStructuree, audience: 'eleve' | 'professeur') {
+  const typeLabel = TYPE_CONFIG[resource.type]?.label || resource.type
+  const suffix = audience === 'eleve' ? 'Élève' : 'Professeur'
+  const badgeColor = audience === 'eleve' ? '#2563eb' : '#d97706'
+
+  const printWindow = window.open('', '_blank')
+  if (!printWindow) return
+
+  printWindow.document.write(`<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${typeLabel} — ${suffix}</title>
+    <style>
+      body { font-family: 'Georgia', serif; max-width: 800px; margin: 0 auto; padding: 40px 48px; color: #1a1a1a; line-height: 1.7; }
+      .badge { display: inline-flex; align-items: center; gap: 6px; background: ${badgeColor}22; color: ${badgeColor}; border: 1px solid ${badgeColor}44; border-radius: 20px; padding: 3px 12px; font-size: 12px; font-family: sans-serif; font-weight: 600; margin-bottom: 24px; }
+      h1, h2 { border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+      h1 { font-size: 22px; } h2 { font-size: 18px; margin-top: 28px; } h3 { font-size: 15px; margin-top: 18px; }
+      blockquote { border-left: 3px solid ${badgeColor}; background: ${badgeColor}11; padding: 12px 16px; margin: 16px 0; font-style: italic; border-radius: 0 4px 4px 0; }
+      table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+      th, td { border: 1px solid #e0e0e0; padding: 8px 12px; text-align: left; }
+      th { background: #f5f5f5; font-weight: 700; font-size: 13px; }
+      p { margin-bottom: 12px; }
+      li { margin-bottom: 4px; }
+      strong { font-weight: 700; }
+      em { font-style: italic; }
+      hr { border: none; border-top: 1px solid #e0e0e0; margin: 20px 0; }
+      @media print { body { padding: 20px 24px; } .badge { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    </style>
+  </head>
+  <body>
+    <div class="badge">${typeLabel} · ${suffix}</div>
+    ${renderMarkdown(resource.contenu_markdown)}
+    <script>window.onload = function() { window.print(); }</script>
+  </body>
+</html>`)
+  printWindow.document.close()
+}
+
+// ── Composant principal ────────────────────────────────────────────────────────
+
+export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePanelProps) {
+  const [pairs, setPairs] = useState<RessourcePaire[]>([])
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
+  const [activeAudience, setActiveAudience] = useState<'eleve' | 'professeur'>('eleve')
+  const [isEditing, setIsEditing] = useState(false)
+  const [editedContent, setEditedContent] = useState('')
+  const [isLoadingDb, setIsLoadingDb] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [generatingType, setGeneratingType] = useState<RessourceType | null>(null)
+  const [batchRunning, setBatchRunning] = useState(false)
+  const [suggestedTypes, setSuggestedTypes] = useState<RessourceType[]>([])
+  const [error, setError] = useState<string | null>(null)
+
+  // Ref pour détecter un vrai changement de ressource (vs mise à jour de pairs après save)
+  const currentResourceIdRef = useRef<string | null>(null)
+
+  // ── Chargement au montage ──────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!isOpen) {
+      // Réinitialiser l'état quand le panel se ferme
+      setPairs([])
+      setSelectedIdx(null)
+      setActiveAudience('eleve')
+      setIsEditing(false)
+      setError(null)
+      return
+    }
+
+    // Charger les suggestions pour ce type d'activité
+    fetch(`/api/generate/resource?activiteType=${encodeURIComponent(context.activiteType)}`)
+      .then(r => r.json())
+      .then(data => { if (data.suggestions) setSuggestedTypes(data.suggestions) })
+      .catch(() => { /* silencieux */ })
+
+    // Charger les ressources existantes depuis la DB si activiteId disponible
+    if (context.activiteId) {
+      setIsLoadingDb(true)
+      fetch(`/api/resources?activite_id=${context.activiteId}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.ressources && data.ressources.length > 0) {
+            const grouped = groupIntoPairs(data.ressources as RessourceStructuree[])
+            setPairs(grouped)
+            setSelectedIdx(0)
+          }
+        })
+        .catch(console.error)
+        .finally(() => setIsLoadingDb(false))
+    }
+  }, [isOpen, context.activiteId, context.activiteType])
+
+  // ── Sync contenu édité avec la sélection ──────────────────────────────────
+  // Règle : on réinitialise l'édition UNIQUEMENT si on change de ressource.
+  // Si pairs change suite à une sauvegarde (même resource.id), on ne touche pas à isEditing.
+
+  useEffect(() => {
+    if (selectedIdx === null || !pairs[selectedIdx]) return
+    const paire = pairs[selectedIdx]
+    const resource = activeAudience === 'eleve' && paire.eleve ? paire.eleve : paire.professeur
+
+    if (resource.id !== currentResourceIdRef.current) {
+      // Changement de ressource → réinitialiser proprement
+      currentResourceIdRef.current = resource.id
+      setEditedContent(resource.contenu_markdown)
+      setIsEditing(false)
+      setSaveSuccess(false)
+    }
+    // Si même ressource (ex : pairs mis à jour après save), on ne touche à rien
+  }, [selectedIdx, activeAudience, pairs])
+
+  // ── Génération d'une ressource ─────────────────────────────────────────────
+
+  const generateOne = useCallback(async (type: RessourceType): Promise<RessourcePaire | null> => {
+    setGeneratingType(type)
+    setError(null)
+
+    try {
+      const res = await fetch('/api/generate/resource', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sequenceTitle:    context.sequenceTitle,
+          niveau:           context.niveau,
+          theme:            context.theme,
+          seanceNumero:     context.seanceNumero,
+          seanceTitle:      context.seanceTitle,
+          activiteId:       context.activiteId,
+          activiteTitre:    context.activiteTitre,
+          activiteType:     context.activiteType,
+          activiteConsigne: context.activiteConsigne,
+          ressourceType:    type,
+          ressourceTitre:   DEFAULT_TITLES[type] || type,
+          corpus_ref:       context.corpusRef,
+          provider,
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`)
+
+      return data as RessourcePaire
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur de génération')
+      return null
+    } finally {
+      setGeneratingType(null)
+    }
+  }, [context, provider])
+
+  const handleGenerate = useCallback(async (type: RessourceType) => {
+    const paire = await generateOne(type)
+    if (!paire) return
+    setPairs(prev => {
+      const next = [...prev, paire]
+      setSelectedIdx(next.length - 1)
+      setActiveAudience('eleve')
+      return next
+    })
+  }, [generateOne])
+
+  const handleGenerateAll = useCallback(async () => {
+    const existingTypes = pairs.map(p => p.professeur.type)
+    const toGenerate = suggestedTypes.filter(t => !existingTypes.includes(t))
+    if (toGenerate.length === 0) return
+
+    setBatchRunning(true)
+    let currentPairs = [...pairs]
+
+    for (const type of toGenerate) {
+      const paire = await generateOne(type)
+      if (paire) {
+        currentPairs = [...currentPairs, paire]
+        setPairs(currentPairs)
+        setSelectedIdx(currentPairs.length - 1)
+        setActiveAudience('eleve')
+      }
+    }
+
+    setBatchRunning(false)
+  }, [pairs, suggestedTypes, generateOne])
+
+  // ── Dérivés ────────────────────────────────────────────────────────────────
+
+  const generatedTypes = pairs.map(p => p.professeur.type)
+  const pendingSuggestions = suggestedTypes.filter(t => !generatedTypes.includes(t))
+  const currentPaire = selectedIdx !== null ? pairs[selectedIdx] : null
+  const hasEleve = Boolean(currentPaire?.eleve)
+  const effectiveAudience = (!hasEleve && activeAudience === 'eleve') ? 'professeur' : activeAudience
+  const currentResource = currentPaire
+    ? (effectiveAudience === 'eleve' && currentPaire.eleve ? currentPaire.eleve : currentPaire.professeur)
+    : null
+  const hasUnsavedChanges = isEditing && currentResource !== null && editedContent !== currentResource.contenu_markdown
+
+  const isGeneratingAny = generatingType !== null || batchRunning
+
+  // ── Sauvegarde du Markdown édité ──────────────────────────────────────────
+
+  const handleSave = useCallback(async () => {
+    if (!currentResource || isSaving) return
+
+    setIsSaving(true)
+    setSaveSuccess(false)
+    setError(null)
+
+    try {
+      const res = await fetch(`/api/resources/${currentResource.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contenu_markdown: editedContent }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+
+      // Mettre à jour pairs en mémoire sans déclencher de reset d'édition
+      setPairs(prev => prev.map((paire, idx) => {
+        if (idx !== selectedIdx) return paire
+        return {
+          professeur: paire.professeur.id === currentResource.id
+            ? { ...paire.professeur, contenu_markdown: editedContent }
+            : paire.professeur,
+          eleve: paire.eleve?.id === currentResource.id
+            ? { ...paire.eleve, contenu_markdown: editedContent }
+            : paire.eleve,
+        }
+      }))
+
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 2500)
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur lors de la sauvegarde')
+    } finally {
+      setIsSaving(false)
+    }
+  }, [currentResource, editedContent, isSaving, selectedIdx])
+
+  // ── Fermeture avec auto-save si modifications en cours ────────────────────
+
+  const handleClose = useCallback(async () => {
+    if (hasUnsavedChanges) {
+      // Sauvegarde silencieuse avant de fermer (évite la perte de données)
+      try {
+        await fetch(`/api/resources/${currentResource!.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contenu_markdown: editedContent }),
+        })
+      } catch {
+        // On ferme quand même en cas d'erreur réseau
+      }
+    }
+    onClose()
+  }, [hasUnsavedChanges, currentResource, editedContent, onClose])
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          {/* Overlay */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 0.6 }}
+            exit={{ opacity: 0 }}
+            onClick={handleClose}
+            className="fixed inset-0 bg-black backdrop-blur-sm z-40"
+          />
+
+          {/* Panel */}
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="fixed right-0 top-0 bottom-0 w-full max-w-2xl bg-gray-950/97 backdrop-blur-xl border-l border-gray-800 shadow-2xl z-50 flex flex-col text-gray-200"
+          >
+            {/* ── Header ── */}
+            <div className="px-5 py-4 border-b border-gray-800 flex items-start justify-between bg-gray-900/40 shrink-0">
+              <div>
+                <p className="text-xs text-gray-500 font-medium uppercase tracking-wider mb-0.5">Ressources pédagogiques</p>
+                <h3 className="font-bold text-gray-100 leading-tight">{context.activiteTitre}</h3>
+                <p className="text-xs text-gray-500 mt-0.5">{context.seanceTitle} · Séquence : {context.sequenceTitle}</p>
+              </div>
+              <button
+                onClick={handleClose}
+                className="h-8 w-8 rounded-full border border-gray-800 hover:bg-gray-800 text-gray-400 hover:text-white flex items-center justify-center transition-colors shrink-0 ml-3"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* ── Sélecteur de ressources (tabs) ── */}
+            <div className="px-4 py-3 border-b border-gray-800/60 shrink-0 space-y-2.5">
+
+              {/* Ressources générées */}
+              {pairs.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {pairs.map((paire, idx) => {
+                    const type = paire.professeur.type
+                    const cfg = TYPE_CONFIG[type] ?? { label: type, color: 'border-gray-700 text-gray-400', activeColor: 'bg-gray-600' }
+                    const isActive = idx === selectedIdx
+                    return (
+                      <button
+                        key={paire.professeur.id}
+                        onClick={() => { setSelectedIdx(idx); setActiveAudience('eleve'); setIsEditing(false) }}
+                        className={cn(
+                          'flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-all',
+                          isActive
+                            ? `${cfg.activeColor} text-white border-transparent shadow-sm`
+                            : `bg-transparent ${cfg.color} hover:brightness-125`,
+                        )}
+                      >
+                        <CheckCircle2 className="h-3 w-3 shrink-0" />
+                        {cfg.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Suggestions à générer */}
+              {(pendingSuggestions.length > 0 || pairs.length === 0) && (
+                <div className="flex flex-wrap gap-1.5 items-center">
+                  {pendingSuggestions.map(type => {
+                    const cfg = TYPE_CONFIG[type] ?? { label: type, color: 'border-gray-700 text-gray-500' }
+                    const isGen = generatingType === type
+                    return (
+                      <button
+                        key={type}
+                        onClick={() => handleGenerate(type as RessourceType)}
+                        disabled={isGeneratingAny}
+                        className={cn(
+                          'flex items-center gap-1 px-2.5 py-1 rounded-lg border border-dashed text-xs transition-all disabled:opacity-40',
+                          isGen ? 'border-blue-600 text-blue-400' : 'border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300',
+                        )}
+                      >
+                        {isGen
+                          ? <Loader2 className="h-3 w-3 animate-spin" />
+                          : <Plus className="h-3 w-3" />}
+                        {cfg.label}
+                      </button>
+                    )
+                  })}
+
+                  {pendingSuggestions.length > 1 && (
+                    <button
+                      onClick={handleGenerateAll}
+                      disabled={isGeneratingAny}
+                      className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-600/10 border border-blue-700/40 text-xs text-blue-400 hover:bg-blue-600/20 disabled:opacity-40 font-semibold transition-all"
+                    >
+                      {batchRunning
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <Sparkles className="h-3 w-3" />}
+                      {batchRunning ? 'Génération en cours...' : `Tout générer (${pendingSuggestions.length})`}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ── Corps ── */}
+            <div className="flex-1 overflow-hidden flex flex-col">
+
+              {/* État vide / chargement */}
+              {pairs.length === 0 && (
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-10 space-y-5">
+                  {isLoadingDb ? (
+                    <>
+                      <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
+                      <p className="text-sm text-gray-400">Chargement des ressources...</p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="h-14 w-14 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                        <Sparkles className="h-7 w-7" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-white text-base">Aucune ressource générée</h4>
+                        <p className="text-sm text-gray-500 mt-1.5 max-w-xs leading-relaxed">
+                          Cliquez sur un type ci-dessus pour générer une fiche élève + corrigé professeur en un clic.
+                        </p>
+                      </div>
+                      {!context.activiteId && (
+                        <p className="text-xs text-amber-500/80 bg-amber-900/20 border border-amber-800/30 rounded-lg px-3 py-2 max-w-xs">
+                          💡 Sauvegardez la séquence pour que les ressources générées soient persistées.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Erreur */}
+              {error && (
+                <div className="mx-4 mt-3 p-3 rounded-lg bg-red-900/20 border border-red-800/30 flex items-start gap-2 shrink-0">
+                  <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+                  <p className="text-xs text-red-300">{error}</p>
+                </div>
+              )}
+
+              {/* Génération en cours (quand pairs.length > 0) */}
+              {isGeneratingAny && pairs.length > 0 && (
+                <div className="mx-4 mt-3 px-3 py-2 rounded-lg bg-blue-900/20 border border-blue-800/30 flex items-center gap-2 shrink-0">
+                  <Loader2 className="h-3.5 w-3.5 text-blue-400 animate-spin shrink-0" />
+                  <p className="text-xs text-blue-300">
+                    {generatingType
+                      ? `Génération de la ${TYPE_CONFIG[generatingType]?.label ?? generatingType}...`
+                      : 'Génération en cours...'}
+                  </p>
+                </div>
+              )}
+
+              {/* Visionneuse de ressource */}
+              {currentPaire && (
+                <div className="flex-1 overflow-hidden flex flex-col">
+
+                  {/* Toggle Élève / Professeur + mode édition */}
+                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-800/50 shrink-0">
+                    {/* Toggle audience */}
+                    <div className="flex rounded-lg overflow-hidden border border-gray-800 bg-gray-900/60 shrink-0">
+                      <button
+                        onClick={() => { setActiveAudience('eleve'); setIsEditing(false) }}
+                        disabled={!hasEleve}
+                        title={!hasEleve ? "Ce type n'a pas de version élève" : undefined}
+                        className={cn(
+                          'flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors',
+                          effectiveAudience === 'eleve'
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-400 hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed',
+                        )}
+                      >
+                        <User className="h-3.5 w-3.5" />
+                        Élève
+                      </button>
+                      <button
+                        onClick={() => { setActiveAudience('professeur'); setIsEditing(false) }}
+                        className={cn(
+                          'flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors',
+                          effectiveAudience === 'professeur'
+                            ? 'bg-amber-600 text-white'
+                            : 'text-gray-400 hover:text-gray-200',
+                        )}
+                      >
+                        <GraduationCap className="h-3.5 w-3.5" />
+                        Professeur
+                      </button>
+                    </div>
+
+                    {/* Bouton Sauvegarder (visible en mode édition) */}
+                    <AnimatePresence>
+                      {isEditing && (
+                        <motion.button
+                          key="save-btn"
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.9 }}
+                          onClick={handleSave}
+                          disabled={isSaving || !hasUnsavedChanges}
+                          className={cn(
+                            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
+                            saveSuccess
+                              ? 'bg-green-600/20 border border-green-700/50 text-green-400'
+                              : hasUnsavedChanges
+                                ? 'bg-blue-600/20 border border-blue-700/50 text-blue-400 hover:bg-blue-600/30'
+                                : 'bg-gray-800/50 border border-gray-700/40 text-gray-500 cursor-default',
+                          )}
+                          title={hasUnsavedChanges ? 'Sauvegarder les modifications' : 'Aucune modification'}
+                        >
+                          {isSaving
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : saveSuccess
+                              ? <CheckCircle2 className="h-3.5 w-3.5" />
+                              : <Save className="h-3.5 w-3.5" />}
+                          {isSaving ? 'Sauvegarde…' : saveSuccess ? 'Sauvegardé' : 'Sauvegarder'}
+                        </motion.button>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Mode aperçu / édition */}
+                    <div className="flex gap-1 bg-gray-900/60 border border-gray-800 rounded-lg overflow-hidden">
+                      <button
+                        onClick={() => setIsEditing(false)}
+                        className={cn(
+                          'p-1.5 transition-colors',
+                          !isEditing ? 'bg-gray-700 text-gray-100' : 'text-gray-600 hover:text-gray-400',
+                        )}
+                        title="Aperçu rendu"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setIsEditing(true)}
+                        className={cn(
+                          'p-1.5 transition-colors',
+                          isEditing ? 'bg-gray-700 text-gray-100' : 'text-gray-600 hover:text-gray-400',
+                        )}
+                        title="Éditer le Markdown"
+                      >
+                        <Edit3 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Zone de contenu */}
+                  <div className="flex-1 overflow-y-auto p-5">
+                    {!isEditing ? (
+                      <div
+                        className="prose prose-invert max-w-none font-sans"
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(editedContent) }}
+                      />
+                    ) : (
+                      <textarea
+                        value={editedContent}
+                        onChange={e => setEditedContent(e.target.value)}
+                        className="w-full h-full min-h-[500px] bg-transparent border-0 resize-none font-mono text-sm text-gray-300 focus:outline-none leading-relaxed"
+                        placeholder="Contenu Markdown..."
+                        spellCheck={false}
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── Footer ── */}
+            <div className="px-4 py-3 border-t border-gray-800/80 bg-gray-900/40 flex items-center justify-between shrink-0">
+              <div className="flex gap-2">
+                {currentResource && (
+                  <>
+                    {currentPaire?.eleve && (
+                      <button
+                        onClick={() => currentPaire.eleve && printResource(currentPaire.eleve, 'eleve')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-800/50 text-xs text-blue-400 hover:bg-blue-500/10 transition-all font-medium"
+                      >
+                        <Printer className="h-3.5 w-3.5" />
+                        Imprimer Élève
+                      </button>
+                    )}
+                    <button
+                      onClick={() => printResource(currentPaire!.professeur, 'professeur')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-800/50 text-xs text-amber-400 hover:bg-amber-500/10 transition-all font-medium"
+                    >
+                      <Printer className="h-3.5 w-3.5" />
+                      Imprimer Prof
+                    </button>
+                  </>
+                )}
+              </div>
+              <button
+                onClick={handleClose}
+                className={cn(
+                  'text-xs px-3 py-1.5 transition-colors',
+                  hasUnsavedChanges
+                    ? 'text-amber-500 hover:text-amber-300'
+                    : 'text-gray-500 hover:text-gray-300',
+                )}
+              >
+                {hasUnsavedChanges ? 'Fermer (auto-save)' : 'Fermer'}
+              </button>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  )
+}

@@ -149,6 +149,30 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE activites ADD COLUMN corpus_suggestion TEXT;
     `,
   },
+  {
+    version: 4,
+    name: 'ressources_structurees',
+    sql: `
+      -- Table des ressources pédagogiques structurées (nouveau système)
+      -- Chaque ressource a une audience : 'eleve' ou 'professeur'
+      -- Les deux versions d'une paire sont liées par paired_with
+      CREATE TABLE IF NOT EXISTS ressources (
+        id               TEXT PRIMARY KEY,
+        activite_id      TEXT REFERENCES activites(id) ON DELETE CASCADE,
+        type             TEXT NOT NULL,
+        audience         TEXT NOT NULL CHECK(audience IN ('eleve', 'professeur')),
+        paired_with      TEXT REFERENCES ressources(id) ON DELETE SET NULL,
+        contenu_json     TEXT NOT NULL DEFAULT '{}',
+        contenu_markdown TEXT NOT NULL DEFAULT '',
+        created_at       TEXT DEFAULT (datetime('now')),
+        updated_at       TEXT DEFAULT (datetime('now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_ressources_activite ON ressources(activite_id);
+      CREATE INDEX IF NOT EXISTS idx_ressources_type     ON ressources(type);
+      CREATE INDEX IF NOT EXISTS idx_ressources_paired   ON ressources(paired_with);
+    `,
+  },
 ]
 
 function runMigrations(db: Database.Database) {

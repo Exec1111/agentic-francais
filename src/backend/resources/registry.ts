@@ -1,0 +1,134 @@
+/**
+ * Registre central des types de ressources pédagogiques.
+ *
+ * Pour ajouter un nouveau type :
+ *   1. Créer src/backend/resources/types/mon-type.ts (implémenter ResourceTypeDefinition)
+ *   2. L'importer ici et l'ajouter à RESOURCE_REGISTRY
+ *   Voir doc/resource-types.md pour le guide complet.
+ */
+
+import { z } from 'zod'
+import type { RessourceType } from '@/shared/schemas'
+import type { LLMMessage } from '@/backend/llm-provider'
+import type { CorpusItem } from '@/shared/schemas'
+
+// ── Types d'activités ──────────────────────────────────────────────────────────
+
+export type ActiviteType =
+  | 'exercice'
+  | 'production_ecrite'
+  | 'debat'
+  | 'lecture'
+  | 'oral'
+  | 'evaluation'
+  | 'collaboration'
+  | 'recherche'
+
+// ── Contexte transmis au buildPrompt ──────────────────────────────────────────
+
+export interface ResourceGenerationContext {
+  sequenceTitle: string
+  niveau: string
+  theme: string
+  seanceNumero: number
+  seanceTitle: string
+  activiteId?: string
+  activiteTitre: string
+  activiteType: ActiviteType
+  activiteConsigne: string
+  ressourceTitre: string
+  corpusItem?: CorpusItem | null
+}
+
+// ── Interface à implémenter pour chaque type ───────────────────────────────────
+
+export interface ResourceTypeDefinition<T extends Record<string, unknown>> {
+  /** Identifiant unique du type (snake_case, doit correspondre à RessourceTypeSchema) */
+  type: RessourceType
+
+  /** Libellé affiché dans l'UI */
+  label: string
+
+  /**
+   * TWO_VERSIONS : génère une version élève ET une version professeur.
+   * TEACHER_ONLY : un seul document, à destination du professeur.
+   */
+  category: 'TWO_VERSIONS' | 'TEACHER_ONLY'
+
+  /** Schéma Zod du document complet (version professeur, tous champs inclus). */
+  schema: z.ZodSchema<T>
+
+  /**
+   * Transforme le document complet en version élève.
+   * Obligatoire si category === 'TWO_VERSIONS'.
+   * Doit retirer tous les champs marqués PROF ONLY dans le schéma.
+   */
+  toStudentVersion?: (full: T) => Partial<T>
+
+  /**
+   * Construit les messages LLM à envoyer.
+   * Le système de génération injecte automatiquement le schéma JSON (structured outputs).
+   */
+  buildPrompt: (context: ResourceGenerationContext) => LLMMessage[]
+
+  /**
+   * Renderers Markdown.
+   * - 'professeur' : toujours requis
+   * - 'eleve' : requis si category === 'TWO_VERSIONS'
+   */
+  toMarkdown: {
+    professeur: (resource: T) => string
+    eleve?: (resource: Partial<T>) => string
+  }
+
+  /**
+   * Types d'activités pour lesquels cette ressource est proposée automatiquement
+   * lors de la validation d'une activité.
+   */
+  suggestedFor: ActiviteType[]
+
+  /** Instructions supplémentaires pour le prompt système (optionnel). */
+  systemPromptAddendum?: string
+}
+
+// ── Imports des définitions de types ──────────────────────────────────────────
+
+import { exerciceDefinition } from './types/exercice'
+import { extraitOeuvreDefinition } from './types/extrait-oeuvre'
+
+// ── Registre ──────────────────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const RESOURCE_REGISTRY: ResourceTypeDefinition<any>[] = [
+  exerciceDefinition,
+  extraitOeuvreDefinition,
+  // Ajouter les nouveaux types ici dans l'ordre souhaité d'affichage UI
+]
+
+export const RESOURCE_REGISTRY_MAP = new Map<RessourceType, ResourceTypeDefinition<any>>(
+  RESOURCE_REGISTRY.map((def) => [def.type, def])
+)
+
+/** Récupère la définition d'un type de ressource. Retourne undefined si non enregistré. */
+export function getResourceDefinition(type: RessourceType): ResourceTypeDefinition<any> | undefined {
+  return RESOURCE_REGISTRY_MAP.get(type)
+}
+
+/** Liste tous les types enregistrés avec leur label. */
+export function listResourceTypes(): { type: RessourceType; label: string; category: string }[] {
+  return RESOURCE_REGISTRY.map((def) => ({
+    type: def.type,
+    label: def.label,
+    category: def.category,
+  }))
+}
+
+/**
+ * Retourne les types de ressources suggérés pour un type d'activité.
+ * Utilisé pour proposer automatiquement des ressources lors de la validation d'une activité.
+ */
+export function getSuggestedResourceTypes(activiteType: ActiviteType): RessourceType[] {
+  return RESOURCE_REGISTRY
+    .filter((def) => def.suggestedFor.includes(activiteType))
+    .map((def) => def.type)
+}

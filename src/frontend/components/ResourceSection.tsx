@@ -13,11 +13,16 @@ interface ResourceSectionProps {
 }
 
 const TYPE_CONFIG: Record<RessourceType, { label: string; color: string }> = {
-  cours:          { label: 'Cours',           color: 'bg-blue-500/10 text-blue-400 border-blue-500/30' },
-  bilan:          { label: 'Bilan',           color: 'bg-green-500/10 text-green-400 border-green-500/30' },
-  extrait_oeuvre: { label: "Extrait d'œuvre", color: 'bg-purple-500/10 text-purple-400 border-purple-500/30' },
-  oeuvre_complete:{ label: 'Texte complet',   color: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
-  exercice:       { label: 'Exercice',        color: 'bg-pink-500/10 text-pink-400 border-pink-500/30' },
+  cours:             { label: 'Cours',              color: 'bg-blue-500/10 text-blue-400 border-blue-500/30' },
+  bilan:             { label: 'Bilan',              color: 'bg-green-500/10 text-green-400 border-green-500/30' },
+  extrait_oeuvre:    { label: "Extrait d'œuvre",    color: 'bg-purple-500/10 text-purple-400 border-purple-500/30' },
+  oeuvre_complete:   { label: 'Texte complet',      color: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
+  exercice:          { label: 'Exercice',           color: 'bg-pink-500/10 text-pink-400 border-pink-500/30' },
+  grille_evaluation: { label: "Grille d'évaluation", color: 'bg-orange-500/10 text-orange-400 border-orange-500/30' },
+  fiche_methode:     { label: 'Fiche méthode',      color: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30' },
+  fiche_lecture:     { label: 'Fiche de lecture',   color: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30' },
+  carte_mentale:     { label: 'Carte mentale',      color: 'bg-teal-500/10 text-teal-400 border-teal-500/30' },
+  dictee:            { label: 'Dictée',             color: 'bg-rose-500/10 text-rose-400 border-rose-500/30' },
 }
 
 const FORMAT_OPTIONS: { value: ExerciceFormat; label: string }[] = [
@@ -29,11 +34,16 @@ const FORMAT_OPTIONS: { value: ExerciceFormat; label: string }[] = [
 ]
 
 const DEFAULT_TITLES: Record<RessourceType, string> = {
-  cours:           'Cours théorique',
-  bilan:           'Bilan de séance',
-  extrait_oeuvre:  "Extrait d'œuvre",
-  oeuvre_complete: 'Texte court complet',
-  exercice:        'Fiche d\'exercice',
+  cours:             'Cours théorique',
+  bilan:             'Bilan de séance',
+  extrait_oeuvre:    "Extrait d'œuvre",
+  oeuvre_complete:   'Texte court complet',
+  exercice:          "Fiche d'exercice",
+  grille_evaluation: "Grille d'évaluation",
+  fiche_methode:     'Fiche méthode',
+  fiche_lecture:     'Fiche de lecture',
+  carte_mentale:     'Carte mentale',
+  dictee:            'Dictée',
 }
 
 function StatusIcon({ status }: { status: Ressource['status'] }) {

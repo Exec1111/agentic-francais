@@ -1,16 +1,18 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   BookOpen, Target, Award, Clock, FileText, Plus, Trash2,
-  ChevronUp, ChevronDown, Undo2, Redo2, AlertTriangle, RefreshCw, Loader2,
+  ChevronUp, ChevronDown, Undo2, Redo2, AlertTriangle, RefreshCw, Loader2, Sparkles,
 } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import { EditableText } from './EditableText'
 import { EditableList } from './EditableList'
 import { ResourceSection } from './ResourceSection'
 import { ResourceDrawer } from './ResourceDrawer'
+import { ResourcePanel } from './ResourcePanel'
+import type { ResourcePanelContext } from './ResourcePanel'
 import type { useSequenceEditor, SequencePath } from '@/frontend/hooks/useSequenceEditor'
 import type { Activite, Ressource, RessourceType, ExerciceFormat } from '@/shared/schemas'
 
@@ -52,9 +54,35 @@ interface SequenceEditorProps {
   provider?: string
 }
 
+const PANEL_CLOSED: ResourcePanelContext = {
+  sequenceTitle: '', niveau: '', theme: '',
+  seanceNumero: 1, seanceTitle: '',
+  activiteTitre: '', activiteType: 'exercice', activiteConsigne: '',
+}
+
 export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
   const { sequence } = editor
   const [drawer, setDrawer] = useState<DrawerState | null>(null)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [panelContext, setPanelContext] = useState<ResourcePanelContext>(PANEL_CLOSED)
+  // refreshKey[activiteId] s'incrémente à chaque fermeture du panel → ActiviteBlock recharge son compteur
+  const [refreshKey, setRefreshKey] = useState<Record<string, number>>({})
+
+  const openResourcePanel = useCallback((ctx: ResourcePanelContext) => {
+    setPanelContext(ctx)
+    setPanelOpen(true)
+  }, [])
+
+  const handlePanelClose = useCallback(() => {
+    // Incrémenter le refreshKey de l'activité active → ActiviteBlock recharge son compteur
+    if (panelContext.activiteId) {
+      setRefreshKey(prev => ({
+        ...prev,
+        [panelContext.activiteId!]: (prev[panelContext.activiteId!] ?? 0) + 1,
+      }))
+    }
+    setPanelOpen(false)
+  }, [panelContext.activiteId])
 
   const handleRegenerateActivite = useCallback(async (
     seanceIndex: number,
@@ -285,8 +313,13 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
             totalSeances={sequence.seances.length}
             editor={editor}
             onOpenDrawer={openDrawer}
+            onOpenPanel={openResourcePanel}
             onRegenerate={handleRegenerateActivite}
             corpusCount={sequence.corpus_refs?.length ?? 0}
+            sequenceTitle={sequence.titre}
+            niveau={sequence.niveau}
+            theme={sequence.theme}
+            refreshKey={refreshKey}
           />
         ))}
       </div>
@@ -305,7 +338,7 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
       </div>
     </motion.div>
 
-    {/* Drawer ressources (rendu en dehors du flux pour éviter les problèmes de z-index) */}
+    {/* Drawer ressources — ancien système (backward compat) */}
     <ResourceDrawer
       isOpen={drawer !== null}
       onClose={() => setDrawer(null)}
@@ -326,6 +359,14 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
       }}
       provider={provider}
     />
+
+    {/* Resource Panel — nouveau système structuré (élève + prof) */}
+    <ResourcePanel
+      isOpen={panelOpen}
+      onClose={handlePanelClose}
+      context={panelContext}
+      provider={provider}
+    />
     </>
   )
 }
@@ -338,16 +379,26 @@ function SeanceBlock({
   totalSeances,
   editor,
   onOpenDrawer,
+  onOpenPanel,
   onRegenerate,
   corpusCount,
+  sequenceTitle,
+  niveau,
+  theme,
+  refreshKey,
 }: {
   seance: any
   seanceIndex: number
   totalSeances: number
   editor: EditorReturn
   onOpenDrawer: (r: Ressource, si: number, ai: number | undefined, seanceTitre: string, activiteTitre?: string, activiteType?: string, corpusRef?: string) => void
+  onOpenPanel: (ctx: ResourcePanelContext) => void
   onRegenerate: (si: number, ai: number, motif: string) => Promise<void>
   corpusCount: number
+  sequenceTitle: string
+  niveau: string
+  theme: string
+  refreshKey: Record<string, number>
 }) {
   const [collapsed, setCollapsed] = useState(false)
 
@@ -465,9 +516,15 @@ function SeanceBlock({
                   totalActivites={seance.activites.length}
                   editor={editor}
                   onOpenDrawer={onOpenDrawer}
+                  onOpenPanel={onOpenPanel}
                   onRegenerate={onRegenerate}
                   seanceTitre={seance.titre}
+                  seanceNumero={seance.numero}
                   corpusCount={corpusCount}
+                  sequenceTitle={sequenceTitle}
+                  niveau={niveau}
+                  theme={theme}
+                  refreshTrigger={refreshKey[activite.id ?? ''] ?? 0}
                 />
               ))}
 
@@ -501,9 +558,15 @@ function ActiviteBlock({
   totalActivites,
   editor,
   onOpenDrawer,
+  onOpenPanel,
   onRegenerate,
   seanceTitre,
+  seanceNumero,
   corpusCount,
+  sequenceTitle,
+  niveau,
+  theme,
+  refreshTrigger,
 }: {
   activite: Activite
   seanceIndex: number
@@ -511,14 +574,37 @@ function ActiviteBlock({
   totalActivites: number
   editor: EditorReturn
   onOpenDrawer: (r: Ressource, si: number, ai: number | undefined, seanceTitre: string, activiteTitre?: string, activiteType?: string, corpusRef?: string) => void
+  onOpenPanel: (ctx: ResourcePanelContext) => void
   onRegenerate: (si: number, ai: number, motif: string) => Promise<void>
   seanceTitre: string
+  seanceNumero: number
   corpusCount: number
+  sequenceTitle: string
+  niveau: string
+  theme: string
+  refreshTrigger: number
 }) {
   const [isRejecting, setIsRejecting] = useState(false)
   const [motif, setMotif] = useState('')
   const [isRegenerating, setIsRegenerating] = useState(false)
   const [regenError, setRegenError] = useState<string | null>(null)
+  const [resourceCount, setResourceCount] = useState(0)
+
+  // Charge (ou recharge) le nombre de ressources IA pour cette activité
+  useEffect(() => {
+    if (!activite.id) return
+    fetch(`/api/resources?activite_id=${encodeURIComponent(activite.id)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data.ressources)) {
+          // On compte uniquement les lignes côté "professeur" = nombre de paires distinctes
+          const pairs = (data.ressources as Array<{ audience: string }>)
+            .filter(r => r.audience === 'professeur').length
+          setResourceCount(pairs)
+        }
+      })
+      .catch(() => { /* silencieux */ })
+  }, [activite.id, refreshTrigger])
 
   const handleRegenerate = async () => {
     setIsRegenerating(true)
@@ -648,6 +734,43 @@ function ActiviteBlock({
         sequenceCorpusCount={corpusCount}
       />
 
+      {/* Bouton Ressources IA — nouveau système structuré */}
+      <div className="mt-2 mb-1">
+        <button
+          onClick={() => onOpenPanel({
+            sequenceTitle,
+            niveau,
+            theme,
+            seanceNumero,
+            seanceTitle: seanceTitre,
+            activiteId: activite.id,
+            activiteTitre: activite.titre,
+            activiteType: activite.type,
+            activiteConsigne: activite.consigne,
+            corpusRef: activite.corpus_ref,
+          })}
+          className={cn(
+            'flex items-center gap-1.5 px-2.5 py-1.5 w-full rounded-lg border text-xs font-medium transition-all',
+            resourceCount > 0
+              ? 'border-blue-600/50 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:border-blue-500/70'
+              : 'border-dashed border-blue-700/40 text-blue-400/80 hover:text-blue-300 hover:border-blue-600/60 hover:bg-blue-500/5',
+          )}
+        >
+          <Sparkles className="h-3 w-3 shrink-0" />
+          <span className="flex-1 text-left">
+            {resourceCount > 0
+              ? `Ressources IA`
+              : 'Ressources IA — Générer fiche élève + corrigé prof'}
+          </span>
+          {resourceCount > 0 && (
+            <span className="inline-flex items-center justify-center h-4.5 min-w-[1.125rem] px-1.5 rounded-full bg-blue-500 text-white text-[10px] font-bold leading-none tabular-nums">
+              {resourceCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* ResourceSection — ancien système (backward compat) */}
       <ResourceSection
         ressources={activite.ressources || []}
         onOpen={(r) => onOpenDrawer(r, seanceIndex, activiteIndex, seanceTitre, activite.titre, activite.type, activite.corpus_ref)}
