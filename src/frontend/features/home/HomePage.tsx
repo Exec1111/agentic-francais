@@ -2,18 +2,18 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Send, Sparkles, RotateCcw, Download, Terminal, Save, Loader2 } from 'lucide-react'
-import { WorkflowPipeline, WorkflowProgress } from '@/frontend/components/WorkflowPipeline'
+import { Sparkles, Download, Terminal, Save, Bot } from 'lucide-react'
+import { WorkflowProgress } from '@/frontend/components/WorkflowPipeline'
 import { SequenceEditor } from '@/frontend/components/SequenceEditor'
 import { ReviewPanel } from '@/frontend/components/ReviewPanel'
 import { ProviderSwitch } from '@/frontend/components/ProviderSwitch'
-import { ReactTrace, ReactStepData } from '@/frontend/components/ReactTrace'
+import { ReactStepData } from '@/frontend/components/ReactTrace'
 import { LLMLogsPanel } from '@/frontend/components/LLMLogsPanel'
+import { PipelinePanel } from '@/frontend/components/PipelinePanel'
 import { SavedSequences } from '@/frontend/components/SavedSequences'
-import { CorpusSelector } from '@/frontend/components/CorpusSelector'
+import { GenerateModal } from '@/frontend/components/GenerateModal'
 import { useSequenceEditor } from '@/frontend/hooks/useSequenceEditor'
 import { useSequenceStore } from '@/frontend/hooks/useSequenceStore'
-import { cn } from '@/shared/utils'
 import type { CorpusSuggestResponse } from '@/app/api/corpus/suggest/route'
 
 type AgentName = 'orchestrateur' | 'architecte' | 'generateur' | 'reviewer'
@@ -29,6 +29,7 @@ type GenerationStep = 'idle' | 'suggesting' | 'corpus_selection' | 'generating' 
 
 export default function HomePage() {
   const [demande, setDemande] = useState('')
+  const [showModal, setShowModal] = useState(false)
   const [provider, setProvider] = useState<'ollama' | 'openai'>('ollama')
   const [generationStep, setGenerationStep] = useState<GenerationStep>('idle')
   const [corpusSuggest, setCorpusSuggest] = useState<CorpusSuggestResponse | null>(null)
@@ -45,6 +46,7 @@ export default function HomePage() {
   const [review, setReview] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
+  const [showPipeline, setShowPipeline] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const store = useSequenceStore()
 
@@ -79,32 +81,14 @@ export default function HomePage() {
     setProgress(null)
   }, [])
 
-  // Étape 1 : suggérer le corpus avant de lancer le workflow
-  const handleSubmit = useCallback(async () => {
-    if (!demande.trim() || isRunning) return
-    resetState()
-    setGenerationStep('suggesting')
-    setProgress({ percent: 3, label: 'Recherche du corpus…' })
-    try {
-      const res = await fetch('/api/corpus/suggest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ demande, provider }),
-      })
-      const data: CorpusSuggestResponse = await res.json()
-      setCorpusSuggest(data)
-      setGenerationStep('corpus_selection')
-    } catch {
-      // Si la suggestion échoue, on lance quand même sans corpus
-      handleGenerate([])
-    }
-  }, [demande, provider, isRunning, resetState])
-
-  // Étape 2 : lancer le vrai workflow avec les refs sélectionnées
-  const handleGenerate = useCallback(async (corpusRefs: string[]) => {
+  // Appelé depuis la modale : lance le workflow avec la demande + refs corpus choisies
+  const handleGenerate = useCallback(async (texte: string, corpusRefs: string[]) => {
+    setDemande(texte)
     setGenerationStep('generating')
     setIsRunning(true)
     setError(null)
+    setShowPipeline(true)
+    setShowModal(false)
 
     abortRef.current = new AbortController()
 
@@ -112,7 +96,7 @@ export default function HomePage() {
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ demande, provider, corpus_refs: corpusRefs }),
+        body: JSON.stringify({ demande: texte, provider, corpus_refs: corpusRefs }),
         signal: abortRef.current.signal,
       })
 
@@ -263,9 +247,9 @@ export default function HomePage() {
   }, [editor.sequence, review])
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-screen flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="border-b border-gray-800 bg-gray-950/80 backdrop-blur-sm sticky top-0 z-50">
+      <header className="border-b border-gray-800 bg-gray-950/80 backdrop-blur-sm flex-shrink-0 z-50">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-900/50 border border-primary-700/50">
@@ -284,6 +268,13 @@ export default function HomePage() {
               disabled={isRunning}
             />
             <button
+              onClick={() => setShowPipeline(true)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-400 hover:text-purple-400 hover:border-purple-700/50 transition-all"
+            >
+              <Bot className="h-3.5 w-3.5" />
+              Pipeline
+            </button>
+            <button
               onClick={() => setShowLogs(true)}
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-400 hover:text-green-400 hover:border-green-700/50 transition-all"
             >
@@ -297,98 +288,43 @@ export default function HomePage() {
       {/* Panel Logs LLM */}
       <LLMLogsPanel isOpen={showLogs} onClose={() => setShowLogs(false)} />
 
-      {/* Main content */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Modale de génération */}
+      <GenerateModal
+        isOpen={showModal}
+        onClose={() => { setShowModal(false); if (!isRunning) resetState() }}
+        provider={provider}
+        onSwitchProvider={setProvider}
+        onGenerate={handleGenerate}
+      />
 
-          {/* Colonne gauche : Pipeline + Trace ReAct */}
-          <div className="lg:col-span-4 xl:col-span-3">
-            <div className="sticky top-20 space-y-6">
-              <WorkflowPipeline agents={agents} progress={progress} isRunning={isRunning} />
-              <ReactTrace steps={reactSteps} />
-            </div>
+      {/* Panel Pipeline Agentique */}
+      <PipelinePanel
+        isOpen={showPipeline}
+        onClose={() => setShowPipeline(false)}
+        agents={agents}
+        progress={progress}
+        isRunning={isRunning}
+        reactSteps={reactSteps}
+      />
+
+      {/* Main content */}
+      <main className="flex-1 overflow-hidden w-full">
+        <div className="max-w-7xl mx-auto h-full px-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+          {/* Colonne gauche : Séquences sauvegardées */}
+          <div className="lg:col-span-3 h-full overflow-y-auto py-6 scrollbar-thin">
+            <SavedSequences
+              sequences={store.savedList}
+              loading={store.loading}
+              onLoad={handleLoad}
+              onDelete={handleDelete}
+              onRefresh={store.refresh}
+              onNew={() => { resetState(); setShowModal(true) }}
+            />
           </div>
 
-          {/* Colonne droite : Saisie + Résultats */}
-          <div className="lg:col-span-8 xl:col-span-9 space-y-6">
-
-            {/* Zone de saisie */}
-            <div className="bg-gray-900/50 rounded-xl border border-gray-800 p-4">
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Décrivez votre besoin pédagogique
-              </label>
-              <div className="flex gap-3">
-                <textarea
-                  value={demande}
-                  onChange={(e) => setDemande(e.target.value)}
-                  placeholder="Ex: Prépare une séquence de 5e sur le récit d'aventure avec 5 séances et une évaluation finale."
-                  className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-4 py-3 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 resize-none"
-                  rows={3}
-                  disabled={isRunning}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && e.ctrlKey) handleSubmit()
-                  }}
-                />
-                <div className="flex flex-col gap-2">
-                  <button
-                    onClick={handleSubmit}
-                    disabled={isRunning || generationStep === 'suggesting' || !demande.trim()}
-                    className={cn(
-                      'flex items-center justify-center h-10 w-10 rounded-lg transition-all',
-                      isRunning || generationStep === 'suggesting' || !demande.trim()
-                        ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
-                        : 'bg-primary-600 text-white hover:bg-primary-500 shadow-lg shadow-primary-500/20',
-                    )}
-                  >
-                    {generationStep === 'suggesting'
-                      ? <Loader2 className="h-4 w-4 animate-spin" />
-                      : <Send className="h-4 w-4" />
-                    }
-                  </button>
-                  {(editor.sequence || error || generationStep !== 'idle') && (
-                    <button
-                      onClick={() => { resetState(); setDemande('') }}
-                      className="flex items-center justify-center h-10 w-10 rounded-lg bg-gray-800 text-gray-400 hover:text-white transition-all"
-                    >
-                      <RotateCcw className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
-              <p className="text-xs text-gray-600 mt-2">Ctrl+Enter pour envoyer</p>
-            </div>
-
-            {/* Étape corpus */}
-            <AnimatePresence>
-              {generationStep === 'corpus_selection' && corpusSuggest && (
-                <motion.div
-                  initial={{ opacity: 0, y: -8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0 }}
-                >
-                  <CorpusSelector
-                    response={corpusSuggest}
-                    onConfirm={(refs) => handleGenerate(refs)}
-                    onSkip={() => handleGenerate([])}
-                    isLoading={isRunning}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Erreur */}
-            <AnimatePresence>
-              {error && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0 }}
-                  className="bg-red-950/50 border border-red-800/50 rounded-xl p-4"
-                >
-                  <p className="text-sm text-red-300">❌ {error}</p>
-                </motion.div>
-              )}
-            </AnimatePresence>
+          {/* Colonne droite : Résultats */}
+          <div className="lg:col-span-9 h-full overflow-y-auto py-6 space-y-6 scrollbar-thin">
 
             {/* Résultat : Review */}
             <AnimatePresence>
@@ -434,33 +370,44 @@ export default function HomePage() {
               )}
             </AnimatePresence>
 
-            {/* Séquences sauvegardées */}
-            <SavedSequences
-              sequences={store.savedList}
-              loading={store.loading}
-              onLoad={handleLoad}
-              onDelete={handleDelete}
-              onRefresh={store.refresh}
-            />
+            {/* État : génération en cours */}
+            {isRunning && !editor.sequence && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="text-center py-20"
+              >
+                <div className="relative inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-900 border border-primary-800/50 mb-6">
+                  <Sparkles className="h-7 w-7 text-primary-400" />
+                  <span className="absolute inset-0 rounded-2xl border border-primary-500/30 animate-ping" />
+                </div>
+                <h2 className="text-base font-medium text-gray-300 mb-1">Génération en cours…</h2>
+                <p className="text-xs text-gray-600">
+                  Suivez le pipeline agentique dans le panneau latéral.
+                </p>
+              </motion.div>
+            )}
 
             {/* État initial */}
-            {!isRunning && !editor.sequence && !error && (
+            {!isRunning && !editor.sequence && (
               <div className="text-center py-20">
                 <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-900 border border-gray-800 mb-4">
                   <Sparkles className="h-8 w-8 text-gray-600" />
                 </div>
-                <h2 className="text-lg font-medium text-gray-400 mb-2">
-                  Prêt à créer
-                </h2>
-                <p className="text-sm text-gray-600 max-w-md mx-auto">
-                  Décrivez votre besoin pédagogique et les agents spécialisés construiront
-                  votre séquence étape par étape.
-                </p>
+                <h2 className="text-lg font-medium text-gray-400 mb-3">Prêt à créer</h2>
+                <button
+                  onClick={() => { resetState(); setShowModal(true) }}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-500 text-white rounded-xl text-sm font-medium transition-all shadow-lg shadow-primary-500/20 mx-auto"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Nouvelle séquence
+                </button>
               </div>
             )}
           </div>
         </div>
       </main>
+
     </div>
   )
 }

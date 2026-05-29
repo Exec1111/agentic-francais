@@ -273,7 +273,7 @@ export function ResourceDrawer({
             </div>
 
             {/* Corps du Drawer */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin">
               {/* Statut : VIDE */}
               {ressource.status === 'empty' && (
                 <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-6">
@@ -380,7 +380,7 @@ export function ResourceDrawer({
                   </div>
 
                   {/* Zone de contenu principale */}
-                  <div className="flex-1 min-h-[300px] bg-gray-950/40 rounded-xl border border-gray-900 p-5 overflow-y-auto">
+                  <div className="flex-1 min-h-[300px] bg-gray-950/40 rounded-xl border border-gray-900 p-5 overflow-y-auto scrollbar-thin">
                     {!isEditing ? (
                       // Rendu visuel HTML
                       <div

@@ -247,7 +247,7 @@ export function CorpusSelector({
                     {browserSearch ? 'Aucun résultat pour cette recherche.' : 'Tous les textes du corpus sont déjà proposés ci-dessus.'}
                   </p>
                 ) : (
-                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1 scrollbar-thin">
                     {filteredBrowserItems.map((item) => (
                       <CorpusItemCard
                         key={item.id}

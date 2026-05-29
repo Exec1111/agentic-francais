@@ -145,7 +145,7 @@ export function LLMLogsPanel({ isOpen, onClose }: LLMLogsPanelProps) {
                           )}>
                             {msg.role}:
                           </span>
-                          <pre className="text-xs text-gray-300 mt-0.5 whitespace-pre-wrap font-mono bg-black/30 rounded p-2 max-h-40 overflow-y-auto">
+                          <pre className="text-xs text-gray-300 mt-0.5 whitespace-pre-wrap font-mono bg-black/30 rounded p-2 max-h-40 overflow-y-auto scrollbar-thin">
                             {msg.content}
                           </pre>
                         </div>
@@ -159,7 +159,7 @@ export function LLMLogsPanel({ isOpen, onClose }: LLMLogsPanelProps) {
                           <ArrowDownLeft className="h-3 w-3" />
                           Output
                         </div>
-                        <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono bg-black/30 rounded p-2 max-h-60 overflow-y-auto">
+                        <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono bg-black/30 rounded p-2 max-h-60 overflow-y-auto scrollbar-thin">
                           {log.response}
                         </pre>
                       </div>

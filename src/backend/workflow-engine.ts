@@ -63,6 +63,9 @@ export async function* runWorkflow(
   let generatorOutput: GeneratorOutput | null = null
   let sequence: Sequence | null = null
   let review: Review | null = null
+  // Meilleur essai conservé à travers les tentatives d'amélioration
+  let bestSequence: Sequence | null = null
+  let bestReview: Review | null = null
 
   try {
     for (let step = 1; step <= MAX_STEPS; step++) {
@@ -186,6 +189,12 @@ export async function* runWorkflow(
 
           observation = `Score qualité: ${review.score_qualite}/100 — ${review.problemes.length} problème(s) — ${review.suggestions.length} suggestion(s)`
           yield { type: 'agent_done', agent: 'reviewer', output: review }
+
+          // Conserver le meilleur essai
+          if (sequence && (!bestReview || review.score_qualite > bestReview.score_qualite)) {
+            bestSequence = sequence
+            bestReview = review
+          }
           break
         }
 
@@ -217,7 +226,7 @@ export async function* runWorkflow(
           observation = 'Workflow terminé.'
           yield { type: 'react_observation', step, observation }
           history.push({ thought, action, actionInput, observation })
-          yield { type: 'workflow_done', sequence, review }
+          yield { type: 'workflow_done', sequence: bestSequence ?? sequence, review: bestReview ?? review }
           return
         }
 
@@ -230,8 +239,8 @@ export async function* runWorkflow(
       history.push({ thought, action, actionInput, observation })
     }
 
-    // Max steps atteint
-    yield { type: 'workflow_done', sequence, review }
+    // Max steps atteint — utiliser le meilleur essai enregistré
+    yield { type: 'workflow_done', sequence: bestSequence ?? sequence, review: bestReview ?? review }
 
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Erreur inconnue'

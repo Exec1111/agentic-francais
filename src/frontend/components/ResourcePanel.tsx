@@ -753,7 +753,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
                   </div>
 
                   {/* Zone de contenu */}
-                  <div className="flex-1 overflow-y-auto p-5">
+                  <div className="flex-1 overflow-y-auto p-5 scrollbar-thin">
                     {!isEditing ? (
                       <div
                         className="prose prose-invert max-w-none font-sans"

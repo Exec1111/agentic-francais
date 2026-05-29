@@ -85,6 +85,8 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
   const [panelContext, setPanelContext] = useState<ResourcePanelContext>(PANEL_CLOSED)
   // refreshKey[activiteId] s'incrémente à chaque fermeture du panel → ActiviteBlock recharge son compteur
   const [refreshKey, setRefreshKey] = useState<Record<string, number>>({})
+  const [objectifsOpen, setObjectifsOpen] = useState(false)
+  const [competencesOpen, setCompetencesOpen] = useState(false)
 
   const openResourcePanel = useCallback((ctx: ResourcePanelContext) => {
     setPanelContext(ctx)
@@ -275,39 +277,76 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
         />
       </div>
 
-      {/* Objectifs & Compétences */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-gray-900/50 rounded-xl border border-gray-800 p-4">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-300 mb-3">
-            <Target className="h-4 w-4 text-blue-400" />
-            Objectifs
-          </h3>
-          <EditableList
-            items={sequence.objectifs}
-            onUpdate={(i, v) => editor.updateListItem({ level: 'sequence', field: 'objectifs' }, i, v)}
-            onAdd={(v) => editor.addListItem({ level: 'sequence', field: 'objectifs' }, v)}
-            onRemove={(i) => editor.removeListItem({ level: 'sequence', field: 'objectifs' }, i)}
-            bulletColor="text-blue-500"
-            placeholder="Nouvel objectif..."
-            addLabel="Ajouter un objectif"
-          />
-        </div>
+      {/* Objectifs */}
+      <div className="bg-gray-900/50 rounded-xl border border-gray-800 overflow-hidden">
+        <button
+          onClick={() => setObjectifsOpen((v) => !v)}
+          className="w-full px-4 py-3 flex items-center gap-2 hover:bg-gray-800/30 transition-colors"
+        >
+          <Target className="h-4 w-4 text-blue-400" />
+          <h3 className="text-sm font-semibold text-gray-300">Objectifs</h3>
+          <span className="ml-1 text-xs text-gray-600">({sequence.objectifs.length})</span>
+          <div className="ml-auto">
+            {objectifsOpen ? <ChevronUp className="h-4 w-4 text-gray-500" /> : <ChevronDown className="h-4 w-4 text-gray-500" />}
+          </div>
+        </button>
+        <AnimatePresence>
+          {objectifsOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden border-t border-gray-800 px-4 py-3"
+            >
+              <EditableList
+                items={sequence.objectifs}
+                onUpdate={(i, v) => editor.updateListItem({ level: 'sequence', field: 'objectifs' }, i, v)}
+                onAdd={(v) => editor.addListItem({ level: 'sequence', field: 'objectifs' }, v)}
+                onRemove={(i) => editor.removeListItem({ level: 'sequence', field: 'objectifs' }, i)}
+                bulletColor="text-blue-500"
+                placeholder="Nouvel objectif..."
+                addLabel="Ajouter un objectif"
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
-        <div className="bg-gray-900/50 rounded-xl border border-gray-800 p-4">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-300 mb-3">
-            <Award className="h-4 w-4 text-emerald-400" />
-            Compétences
-          </h3>
-          <EditableList
-            items={sequence.competences}
-            onUpdate={(i, v) => editor.updateListItem({ level: 'sequence', field: 'competences' }, i, v)}
-            onAdd={(v) => editor.addListItem({ level: 'sequence', field: 'competences' }, v)}
-            onRemove={(i) => editor.removeListItem({ level: 'sequence', field: 'competences' }, i)}
-            bulletColor="text-emerald-500"
-            placeholder="Nouvelle compétence..."
-            addLabel="Ajouter une compétence"
-          />
-        </div>
+      {/* Compétences */}
+      <div className="bg-gray-900/50 rounded-xl border border-gray-800 overflow-hidden">
+        <button
+          onClick={() => setCompetencesOpen((v) => !v)}
+          className="w-full px-4 py-3 flex items-center gap-2 hover:bg-gray-800/30 transition-colors"
+        >
+          <Award className="h-4 w-4 text-emerald-400" />
+          <h3 className="text-sm font-semibold text-gray-300">Compétences</h3>
+          <span className="ml-1 text-xs text-gray-600">({sequence.competences.length})</span>
+          <div className="ml-auto">
+            {competencesOpen ? <ChevronUp className="h-4 w-4 text-gray-500" /> : <ChevronDown className="h-4 w-4 text-gray-500" />}
+          </div>
+        </button>
+        <AnimatePresence>
+          {competencesOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden border-t border-gray-800 px-4 py-3"
+            >
+              <EditableList
+                items={sequence.competences}
+                onUpdate={(i, v) => editor.updateListItem({ level: 'sequence', field: 'competences' }, i, v)}
+                onAdd={(v) => editor.addListItem({ level: 'sequence', field: 'competences' }, v)}
+                onRemove={(i) => editor.removeListItem({ level: 'sequence', field: 'competences' }, i)}
+                bulletColor="text-emerald-500"
+                placeholder="Nouvelle compétence..."
+                addLabel="Ajouter une compétence"
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Séances */}
@@ -609,6 +648,7 @@ function ActiviteBlock({
   theme: string
   refreshTrigger: number
 }) {
+  const [collapsed, setCollapsed] = useState(true)
   const [isRejecting, setIsRejecting] = useState(false)
   const [motif, setMotif] = useState('')
   const [isRegenerating, setIsRegenerating] = useState(false)
@@ -669,12 +709,13 @@ function ActiviteBlock({
   return (
     <div
       className={cn(
-        'rounded-lg border p-3 group',
+        'rounded-lg border group',
         TYPE_COLORS[activite.type] || 'bg-gray-800/50 text-gray-300 border-gray-700',
         isRegenerating && 'opacity-60 pointer-events-none',
       )}
     >
-      <div className="flex items-center justify-between mb-1">
+      {/* Header — toujours visible */}
+      <div className="flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {/* Move up/down */}
           <div className="flex flex-col gap-0 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -741,17 +782,35 @@ function ActiviteBlock({
           >
             <Trash2 className="h-3 w-3" />
           </button>
+          {/* Toggle collapse */}
+          <button
+            onClick={() => setCollapsed((v) => !v)}
+            className="p-0.5 opacity-60 hover:opacity-100 transition-opacity"
+          >
+            {collapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
+          </button>
         </div>
       </div>
 
-      <EditableText
-        value={activite.consigne}
-        onSave={(v) => editor.updateField({ level: 'activite', seanceIndex, activiteIndex, field: 'consigne' }, v)}
-        className="text-xs opacity-80 mt-1"
-        placeholder="Ajouter une consigne..."
-        multiline
-        as="p"
-      />
+      {/* Body collapsable */}
+      <AnimatePresence>
+        {!collapsed && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-hidden"
+          >
+            <div className="px-3 pb-3 border-t border-current/10 pt-2">
+              <EditableText
+                value={activite.consigne}
+                onSave={(v) => editor.updateField({ level: 'activite', seanceIndex, activiteIndex, field: 'consigne' }, v)}
+                className="text-xs opacity-80"
+                placeholder="Ajouter une consigne..."
+                multiline
+                as="p"
+              />
 
       {activite.supports && activite.supports.length > 0 && (
         <div className="mt-2">
@@ -954,6 +1013,10 @@ function ActiviteBlock({
                   }
                 </button>
               </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
             </div>
           </motion.div>
         )}
