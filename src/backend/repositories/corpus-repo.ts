@@ -28,10 +28,15 @@ function rowToCorpusItem(row: Record<string, unknown>): CorpusItem {
   }
 }
 
-function rowToCorpusMeta(row: Record<string, unknown>): Omit<CorpusItem, 'contenu'> {
+export type CorpusItemMeta = Omit<CorpusItem, 'contenu'> & {
+  /** true si le texte intégral est disponible dans le corpus, false pour une référence protégée */
+  has_content: boolean
+}
+
+function rowToCorpusMeta(row: Record<string, unknown>): CorpusItemMeta {
   const item = rowToCorpusItem(row)
   const { contenu: _, ...meta } = item
-  return meta
+  return { ...meta, has_content: item.contenu !== '' }
 }
 
 // === Normalisation du niveau ===
@@ -168,7 +173,7 @@ export function searchCorpus(query: CorpusQuery): CorpusItem[] {
 
 // === CRUD ===
 
-export function listCorpus(): Omit<CorpusItem, 'contenu'>[] {
+export function listCorpus(): CorpusItemMeta[] {
   syncCorpusFromFiles()
   const db = getDb()
   const rows = db

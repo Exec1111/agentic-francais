@@ -38,10 +38,14 @@ export const extraitOeuvreDefinition: ResourceTypeDefinition<ExtraitOeuvreConten
       )
     }
 
-    return [
-      {
-        role: 'system',
-        content: `Tu es un professeur de français agrégé spécialiste de la littérature.
+    const hasContent = ctx.corpusItem.contenu !== ''
+
+    if (hasContent) {
+      // ── Mode normal : texte disponible → reproduire mot pour mot ─────────────
+      return [
+        {
+          role: 'system',
+          content: `Tu es un professeur de français agrégé spécialiste de la littérature.
 Tu reçois un texte littéraire OFFICIEL issu d'une base vérifiée.
 Tu dois produire une présentation pédagogique structurée en JSON.
 
@@ -67,10 +71,49 @@ Contexte pédagogique :
 - Séance n°${ctx.seanceNumero} : "${ctx.seanceTitle}"
 - Activité : "${ctx.activiteTitre}" (type : ${ctx.activiteType})
 - Objectif : ${ctx.activiteConsigne}`,
+        },
+        {
+          role: 'user',
+          content: `Génère la présentation pédagogique "${ctx.ressourceTitre}" pour le texte de ${ctx.corpusItem.auteur} en respectant exactement le schéma JSON.`,
+        },
+      ]
+    }
+
+    // ── Mode protégé : contenu non disponible → fiche avec texte à insérer ────
+    const placeholder = `[Texte à insérer par l'enseignant — ${ctx.corpusItem.oeuvre}, ${ctx.corpusItem.auteur}${ctx.corpusItem.pages ? `, ${ctx.corpusItem.pages}` : ''}]`
+    return [
+      {
+        role: 'system',
+        content: `Tu es un professeur de français agrégé spécialiste de la littérature.
+Tu prépares une fiche de lecture pédagogique pour une œuvre protégée par droits d'auteur.
+Le texte intégral ne peut pas être reproduit ici — l'enseignant le distribuera séparément.
+
+RÉFÉRENCE BIBLIOGRAPHIQUE :
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Auteur     : ${ctx.corpusItem.auteur}
+Œuvre      : ${ctx.corpusItem.oeuvre}
+Référence  : ${ctx.corpusItem.edition_reference}${ctx.corpusItem.pages ? ` — pages ${ctx.corpusItem.pages}` : ''}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+RÈGLES ABSOLUES :
+1. Le champ "texte" doit contenir UNIQUEMENT ce placeholder exact (ne pas inventer de texte) :
+   "${placeholder}"
+2. "introduction" : 2-3 phrases de contextualisation (auteur, œuvre, enjeux du passage).
+3. Les questions ("enonce") doivent être formulées sans citer le texte mot pour mot.
+   Pose des questions d'analyse, de compréhension, de style adaptées au thème et au niveau.
+4. "reponse_attendue" et "elements_analyse" : réponses complètes pour le professeur.
+5. "note_prof" : rappelle que l'enseignant doit fournir le texte séparément.
+6. "notes_bas_de_page" peut rester vide (tableau vide []).
+
+Contexte pédagogique :
+- Séquence : "${ctx.sequenceTitle}" | Niveau : ${ctx.niveau} | Thème : ${ctx.theme}
+- Séance n°${ctx.seanceNumero} : "${ctx.seanceTitle}"
+- Activité : "${ctx.activiteTitre}" (type : ${ctx.activiteType})
+- Objectif : ${ctx.activiteConsigne}`,
       },
       {
         role: 'user',
-        content: `Génère la présentation pédagogique "${ctx.ressourceTitre}" pour le texte de ${ctx.corpusItem.auteur} en respectant exactement le schéma JSON.`,
+        content: `Génère la fiche de lecture "${ctx.ressourceTitre}" pour l'œuvre protégée de ${ctx.corpusItem.auteur} en respectant exactement le schéma JSON (texte = placeholder uniquement).`,
       },
     ]
   },

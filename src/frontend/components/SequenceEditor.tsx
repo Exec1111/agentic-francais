@@ -3,8 +3,9 @@
 import { useState, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  BookOpen, Target, Award, Clock, FileText, Plus, Trash2,
-  ChevronUp, ChevronDown, Undo2, Redo2, AlertTriangle, RefreshCw, Loader2, Sparkles,
+  BookOpen, Target, Award, Clock, FileText, Plus, Trash2, X, Search,
+  ChevronUp, ChevronDown, ChevronRight, Undo2, Redo2, AlertTriangle,
+  RefreshCw, Loader2, Sparkles, User, GraduationCap, Lock,
 } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import { EditableText } from './EditableText'
@@ -15,6 +16,20 @@ import { ResourcePanel } from './ResourcePanel'
 import type { ResourcePanelContext } from './ResourcePanel'
 import type { useSequenceEditor, SequencePath } from '@/frontend/hooks/useSequenceEditor'
 import type { Activite, Ressource, RessourceType, ExerciceFormat } from '@/shared/schemas'
+
+// Config visuelle des types de ressources IA (utilisée dans l'accordéon)
+const RESOURCE_TYPE_CONFIG: Record<string, { label: string; chip: string }> = {
+  cours:             { label: 'Cours',          chip: 'bg-blue-500/10 text-blue-400 border-blue-600/30' },
+  bilan:             { label: 'Bilan',          chip: 'bg-green-500/10 text-green-400 border-green-600/30' },
+  extrait_oeuvre:    { label: "Extrait d'œuvre",chip: 'bg-purple-500/10 text-purple-400 border-purple-600/30' },
+  oeuvre_complete:   { label: 'Texte complet',  chip: 'bg-amber-500/10 text-amber-400 border-amber-600/30' },
+  exercice:          { label: 'Exercice',       chip: 'bg-pink-500/10 text-pink-400 border-pink-600/30' },
+  grille_evaluation: { label: "Grille d'éval.", chip: 'bg-orange-500/10 text-orange-400 border-orange-600/30' },
+  fiche_methode:     { label: 'Fiche méthode',  chip: 'bg-cyan-500/10 text-cyan-400 border-cyan-600/30' },
+  fiche_lecture:     { label: 'Fiche lecture',  chip: 'bg-indigo-500/10 text-indigo-400 border-indigo-600/30' },
+  carte_mentale:     { label: 'Carte mentale',  chip: 'bg-teal-500/10 text-teal-400 border-teal-600/30' },
+  dictee:            { label: 'Dictée',         chip: 'bg-rose-500/10 text-rose-400 border-rose-600/30' },
+}
 
 const TYPE_COLORS: Record<string, string> = {
   exercice: 'bg-blue-900/30 text-blue-300 border-blue-700/50',
@@ -31,6 +46,9 @@ const ACTIVITY_TYPES = [
   'exercice', 'production_ecrite', 'debat', 'lecture',
   'oral', 'evaluation', 'collaboration', 'recherche',
 ]
+
+// Types d'activités qui bénéficient d'un texte du corpus (même définition que côté serveur)
+const CORPUS_ACTIVITE_TYPES = new Set(['lecture', 'exercice', 'production_ecrite'])
 
 type EditorReturn = ReturnType<typeof useSequenceEditor>
 
@@ -128,11 +146,23 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
     }
 
     const data = await res.json()
+
+    // Fix C : Ré-évaluer le lien corpus avec les textes actuels de la séquence.
+    // Si l'activité n'avait pas de corpus_ref mais que la séquence en a un, on le lie maintenant.
+    const newCorpusRef = (() => {
+      if (activite.corpus_ref) return activite.corpus_ref           // Déjà lié — on conserve
+      if (!sequence.corpus_refs?.length) return undefined            // Pas de texte dans la séquence
+      if (!CORPUS_ACTIVITE_TYPES.has(activite.type)) return undefined // Type non concerné
+      return sequence.corpus_refs[0]                                 // Premier texte disponible
+    })()
+
     editor.replaceActivite(seanceIndex, activiteIndex, {
       ...data.activite,
       ressources: activite.ressources || [],
-      corpus_ref: activite.corpus_ref,
-      corpus_status: activite.corpus_status,
+      corpus_ref: newCorpusRef,
+      corpus_status: newCorpusRef
+        ? 'trouve'
+        : (activite.corpus_status ?? data.activite.corpus_status),
       corpus_suggestion: activite.corpus_suggestion,
     })
   }, [sequence, provider, editor])
@@ -231,23 +261,18 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
           as="p"
         />
 
-        {/* Corpus de la séquence */}
-        {sequence.corpus_refs && sequence.corpus_refs.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 mt-4 pt-3 border-t border-primary-800/40">
-            <span className="text-xs text-primary-500 font-semibold uppercase tracking-wider">
-              Corpus :
-            </span>
-            {sequence.corpus_refs.map((ref) => (
-              <span
-                key={ref}
-                className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-emerald-950/50 text-emerald-400 border border-emerald-700/40"
-              >
-                <BookOpen className="h-3 w-3 shrink-0" />
-                {ref.replace(/-/g, ' ')}
-              </span>
-            ))}
-          </div>
-        )}
+        {/* Corpus de la séquence — gestion inline */}
+        <CorpusManager
+          corpusRefs={sequence.corpus_refs ?? []}
+          onAdd={(ref) => editor.updateField(
+            { level: 'sequence', field: 'corpus_refs' },
+            [...(sequence.corpus_refs ?? []), ref],
+          )}
+          onRemove={(ref) => editor.updateField(
+            { level: 'sequence', field: 'corpus_refs' },
+            (sequence.corpus_refs ?? []).filter(r => r !== ref),
+          )}
+        />
       </div>
 
       {/* Objectifs & Compétences */}
@@ -315,7 +340,7 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
             onOpenDrawer={openDrawer}
             onOpenPanel={openResourcePanel}
             onRegenerate={handleRegenerateActivite}
-            corpusCount={sequence.corpus_refs?.length ?? 0}
+            sequenceCorpusRefs={sequence.corpus_refs ?? []}
             sequenceTitle={sequence.titre}
             niveau={sequence.niveau}
             theme={sequence.theme}
@@ -381,7 +406,7 @@ function SeanceBlock({
   onOpenDrawer,
   onOpenPanel,
   onRegenerate,
-  corpusCount,
+  sequenceCorpusRefs,
   sequenceTitle,
   niveau,
   theme,
@@ -394,7 +419,7 @@ function SeanceBlock({
   onOpenDrawer: (r: Ressource, si: number, ai: number | undefined, seanceTitre: string, activiteTitre?: string, activiteType?: string, corpusRef?: string) => void
   onOpenPanel: (ctx: ResourcePanelContext) => void
   onRegenerate: (si: number, ai: number, motif: string) => Promise<void>
-  corpusCount: number
+  sequenceCorpusRefs: string[]
   sequenceTitle: string
   niveau: string
   theme: string
@@ -520,7 +545,7 @@ function SeanceBlock({
                   onRegenerate={onRegenerate}
                   seanceTitre={seance.titre}
                   seanceNumero={seance.numero}
-                  corpusCount={corpusCount}
+                  sequenceCorpusRefs={sequenceCorpusRefs}
                   sequenceTitle={sequenceTitle}
                   niveau={niveau}
                   theme={theme}
@@ -562,7 +587,7 @@ function ActiviteBlock({
   onRegenerate,
   seanceTitre,
   seanceNumero,
-  corpusCount,
+  sequenceCorpusRefs,
   sequenceTitle,
   niveau,
   theme,
@@ -578,7 +603,7 @@ function ActiviteBlock({
   onRegenerate: (si: number, ai: number, motif: string) => Promise<void>
   seanceTitre: string
   seanceNumero: number
-  corpusCount: number
+  sequenceCorpusRefs: string[]
   sequenceTitle: string
   niveau: string
   theme: string
@@ -588,20 +613,35 @@ function ActiviteBlock({
   const [motif, setMotif] = useState('')
   const [isRegenerating, setIsRegenerating] = useState(false)
   const [regenError, setRegenError] = useState<string | null>(null)
-  const [resourceCount, setResourceCount] = useState(0)
+  const [isResourcesOpen, setIsResourcesOpen] = useState(false)
 
-  // Charge (ou recharge) le nombre de ressources IA pour cette activité
+  // Paires de ressources IA chargées depuis la DB
+  const [resourcePairs, setResourcePairs] = useState<Array<{ type: string; hasEleve: boolean }>>([])
+
+  // Fix A : Fallback vers le premier texte du corpus de la séquence si l'activité n'en a pas encore.
+  // Permet d'injecter le corpus dans le panneau ResourcePanel même si le lien n'a pas été
+  // établi lors de la génération initiale de la séquence.
+  const effectiveCorpusRef = activite.corpus_ref
+    ?? (CORPUS_ACTIVITE_TYPES.has(activite.type) && sequenceCorpusRefs.length > 0
+      ? sequenceCorpusRefs[0]
+      : undefined)
+
+  // Charge (ou recharge) les ressources IA pour cette activité
   useEffect(() => {
     if (!activite.id) return
     fetch(`/api/resources?activite_id=${encodeURIComponent(activite.id)}`)
       .then(r => r.json())
       .then(data => {
-        if (Array.isArray(data.ressources)) {
-          // On compte uniquement les lignes côté "professeur" = nombre de paires distinctes
-          const pairs = (data.ressources as Array<{ audience: string }>)
-            .filter(r => r.audience === 'professeur').length
-          setResourceCount(pairs)
-        }
+        if (!Array.isArray(data.ressources)) return
+        const rows = data.ressources as Array<{ id: string; type: string; audience: string; paired_with?: string }>
+        // Une paire = 1 ligne professeur + éventuellement 1 ligne élève
+        // L'élève pointe vers le prof via paired_with → on construit un Set des prof_id qui ont un élève
+        const profIds = new Set(rows.filter(r => r.audience === 'eleve').map(r => r.paired_with).filter(Boolean))
+        const profRows = rows.filter(r => r.audience === 'professeur')
+        setResourcePairs(profRows.map(r => ({
+          type: r.type,
+          hasEleve: profIds.has(r.id),
+        })))
       })
       .catch(() => { /* silencieux */ })
   }, [activite.id, refreshTrigger])
@@ -731,55 +771,140 @@ function ActiviteBlock({
         status={activite.corpus_status}
         corpusRef={activite.corpus_ref}
         suggestion={activite.corpus_suggestion}
-        sequenceCorpusCount={corpusCount}
+        sequenceCorpusRefs={sequenceCorpusRefs}
+        onAssociate={(ref) => editor.replaceActivite(seanceIndex, activiteIndex, {
+          ...activite,
+          corpus_ref: ref,
+          corpus_status: 'trouve',
+        })}
       />
 
-      {/* Bouton Ressources IA — nouveau système structuré */}
-      <div className="mt-2 mb-1">
-        <button
-          onClick={() => onOpenPanel({
-            sequenceTitle,
-            niveau,
-            theme,
-            seanceNumero,
-            seanceTitle: seanceTitre,
-            activiteId: activite.id,
-            activiteTitre: activite.titre,
-            activiteType: activite.type,
-            activiteConsigne: activite.consigne,
-            corpusRef: activite.corpus_ref,
-          })}
-          className={cn(
-            'flex items-center gap-1.5 px-2.5 py-1.5 w-full rounded-lg border text-xs font-medium transition-all',
-            resourceCount > 0
-              ? 'border-blue-600/50 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 hover:border-blue-500/70'
-              : 'border-dashed border-blue-700/40 text-blue-400/80 hover:text-blue-300 hover:border-blue-600/60 hover:bg-blue-500/5',
-          )}
-        >
-          <Sparkles className="h-3 w-3 shrink-0" />
-          <span className="flex-1 text-left">
-            {resourceCount > 0
-              ? `Ressources IA`
-              : 'Ressources IA — Générer fiche élève + corrigé prof'}
-          </span>
-          {resourceCount > 0 && (
-            <span className="inline-flex items-center justify-center h-4.5 min-w-[1.125rem] px-1.5 rounded-full bg-blue-500 text-white text-[10px] font-bold leading-none tabular-nums">
-              {resourceCount}
-            </span>
-          )}
-        </button>
-      </div>
+      {/* ── Zone Ressources IA ── */}
+      {(() => {
+        const openPanel = () => onOpenPanel({
+          sequenceTitle, niveau, theme, seanceNumero,
+          seanceTitle: seanceTitre,
+          activiteId: activite.id,
+          activiteTitre: activite.titre,
+          activiteType: activite.type,
+          activiteConsigne: activite.consigne,
+          corpusRef: effectiveCorpusRef,
+        })
 
-      {/* ResourceSection — ancien système (backward compat) */}
-      <ResourceSection
-        ressources={activite.ressources || []}
-        onOpen={(r) => onOpenDrawer(r, seanceIndex, activiteIndex, seanceTitre, activite.titre, activite.type, activite.corpus_ref)}
-        onAdd={(type, fmt, titre) => {
-          const id = `res-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-          editor.addRessource(seanceIndex, activiteIndex, { id, titre: titre || type, type, format_exercice: fmt, status: 'empty', contenu: '' })
-        }}
-        onRemove={(id) => editor.removeRessource(seanceIndex, activiteIndex, id)}
-      />
+        if (resourcePairs.length === 0) {
+          return (
+            <div className="mt-2">
+              <button
+                onClick={openPanel}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 w-full rounded-lg border border-dashed border-blue-700/40 text-xs text-blue-400/80 hover:text-blue-300 hover:border-blue-600/60 hover:bg-blue-500/5 transition-all font-medium"
+              >
+                <Sparkles className="h-3 w-3 shrink-0" />
+                Ressources IA — Générer fiche élève + corrigé prof
+              </button>
+            </div>
+          )
+        }
+
+        return (
+          <div className="mt-2 rounded-lg border border-blue-600/40 bg-blue-500/5 overflow-hidden">
+            {/* En-tête accordéon */}
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5">
+              <Sparkles className="h-3 w-3 text-blue-400 shrink-0" />
+              <span className="text-xs font-semibold text-blue-300">Ressources IA</span>
+              {/* Chips types (max 3) */}
+              <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+                {resourcePairs.slice(0, 3).map(p => {
+                  const cfg = RESOURCE_TYPE_CONFIG[p.type]
+                  return cfg ? (
+                    <span key={p.type} className={cn('text-[10px] px-1.5 py-0.5 rounded border font-medium', cfg.chip)}>
+                      {cfg.label}
+                    </span>
+                  ) : null
+                })}
+                {resourcePairs.length > 3 && (
+                  <span className="text-[10px] text-gray-500">+{resourcePairs.length - 3}</span>
+                )}
+              </div>
+              {/* Expand / collapse */}
+              <button
+                onClick={() => setIsResourcesOpen(v => !v)}
+                className="p-0.5 text-gray-500 hover:text-blue-300 transition-colors shrink-0"
+                title={isResourcesOpen ? 'Réduire' : 'Voir le détail'}
+              >
+                {isResourcesOpen
+                  ? <ChevronUp className="h-3.5 w-3.5" />
+                  : <ChevronDown className="h-3.5 w-3.5" />}
+              </button>
+              {/* Ouvrir panel */}
+              <button
+                onClick={openPanel}
+                className="text-[10px] text-blue-400 hover:text-blue-200 font-semibold px-2 py-0.5 rounded border border-blue-700/40 hover:border-blue-500/60 hover:bg-blue-500/10 transition-all shrink-0"
+              >
+                Gérer / Ajouter
+              </button>
+            </div>
+
+            {/* Corps accordéon */}
+            <AnimatePresence>
+              {isResourcesOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.18 }}
+                  className="overflow-hidden"
+                >
+                  <div className="border-t border-blue-700/20 px-2.5 py-2 space-y-1">
+                    {resourcePairs.map(pair => {
+                      const cfg = RESOURCE_TYPE_CONFIG[pair.type]
+                      return (
+                        <button
+                          key={pair.type}
+                          onClick={openPanel}
+                          className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-md hover:bg-blue-500/10 transition-colors group"
+                        >
+                          <span className={cn('text-[11px] px-2 py-0.5 rounded border font-medium shrink-0', cfg?.chip ?? 'text-gray-400 border-gray-700')}>
+                            {cfg?.label ?? pair.type}
+                          </span>
+                          <span className="flex-1" />
+                          {/* Indicateurs audience */}
+                          {pair.hasEleve && (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] text-blue-400/80 bg-blue-500/10 border border-blue-700/30 px-1.5 py-0.5 rounded-full">
+                              <User className="h-2.5 w-2.5" />Élève
+                            </span>
+                          )}
+                          <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-400/80 bg-amber-500/10 border border-amber-700/30 px-1.5 py-0.5 rounded-full">
+                            <GraduationCap className="h-2.5 w-2.5" />Prof
+                          </span>
+                          <ChevronRight className="h-3 w-3 text-gray-600 group-hover:text-gray-400 shrink-0" />
+                        </button>
+                      )
+                    })}
+
+                    {/* Invite à générer d'autres types */}
+                    <button
+                      onClick={() => onOpenPanel({
+                        sequenceTitle, niveau, theme, seanceNumero,
+                        seanceTitle: seanceTitre,
+                        activiteId: activite.id,
+                        activiteTitre: activite.titre,
+                        activiteType: activite.type,
+                        activiteConsigne: activite.consigne,
+                        corpusRef: effectiveCorpusRef,
+                        startInGenerateMode: true,
+                      })}
+                      className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-md border border-dashed border-blue-800/40 text-[11px] text-blue-500/70 hover:text-blue-400 hover:border-blue-700/60 hover:bg-blue-500/5 transition-all"
+                    >
+                      <Plus className="h-3 w-3 shrink-0" />
+                      Générer un autre type de ressource…
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )
+      })()}
 
       {/* Panel de rejet / régénération */}
       <AnimatePresence>
@@ -837,6 +962,191 @@ function ActiviteBlock({
   )
 }
 
+// === Gestion du corpus de séquence ===
+
+function CorpusManager({
+  corpusRefs,
+  onAdd,
+  onRemove,
+}: {
+  corpusRefs: string[]
+  onAdd: (ref: string) => void
+  onRemove: (ref: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [items, setItems] = useState<Array<{ id: string; auteur: string; oeuvre: string; titre: string; has_content: boolean; domaine_public: boolean }>>([])
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const openPicker = async () => {
+    setOpen(true)
+    if (items.length > 0) return
+    setLoading(true)
+    try {
+      const res = await fetch('/api/corpus')
+      const data = await res.json()
+      setItems(data.items ?? [])
+    } catch { /* silencieux */ }
+    finally { setLoading(false) }
+  }
+
+  const filtered = items.filter(item => {
+    const q = search.toLowerCase()
+    return !q
+      || item.auteur.toLowerCase().includes(q)
+      || item.oeuvre.toLowerCase().includes(q)
+      || item.titre.toLowerCase().includes(q)
+  })
+
+  const currentRefs = new Set(corpusRefs)
+
+  return (
+    <div className="mt-4 pt-3 border-t border-primary-800/40">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-primary-500 font-semibold uppercase tracking-wider shrink-0">
+          Corpus :
+        </span>
+
+        {/* Chips supprimables */}
+        {corpusRefs.map(ref => {
+          const meta = items.find(i => i.id === ref)
+          const isProtected = meta ? !meta.has_content : false
+          return (
+            <span
+              key={ref}
+              className={cn(
+                'inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border group',
+                isProtected
+                  ? 'bg-amber-950/30 text-amber-400/80 border-amber-700/30'
+                  : 'bg-emerald-950/50 text-emerald-400 border-emerald-700/40',
+              )}
+              title={isProtected ? 'Texte protégé — contenu non disponible' : undefined}
+            >
+              {isProtected
+                ? <Lock className="h-3 w-3 shrink-0" />
+                : <BookOpen className="h-3 w-3 shrink-0" />
+              }
+              {meta ? `${meta.auteur}, ${meta.oeuvre}` : ref.replace(/-/g, ' ')}
+              <button
+                onClick={() => onRemove(ref)}
+                className="ml-0.5 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
+                title="Retirer du corpus"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          )
+        })}
+
+        {/* Bouton ajouter */}
+        <div className="relative">
+          <button
+            onClick={open ? () => setOpen(false) : openPicker}
+            className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border border-dashed border-emerald-700/40 text-emerald-500/70 hover:text-emerald-400 hover:border-emerald-600/60 hover:bg-emerald-500/5 transition-all"
+          >
+            <Plus className="h-3 w-3" />
+            Ajouter un texte
+          </button>
+
+          {/* Dropdown picker */}
+          <AnimatePresence>
+            {open && (
+              <motion.div
+                initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                transition={{ duration: 0.15 }}
+                className="absolute left-0 top-full mt-2 w-80 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-50 overflow-hidden"
+              >
+                {/* Recherche */}
+                <div className="p-2 border-b border-gray-800">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-500 pointer-events-none" />
+                    <input
+                      autoFocus
+                      type="text"
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                      placeholder="Auteur, titre, œuvre…"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-7 pr-3 py-1.5 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-emerald-700"
+                    />
+                  </div>
+                </div>
+
+                {/* Liste */}
+                <div className="max-h-64 overflow-y-auto">
+                  {loading ? (
+                    <div className="flex items-center justify-center py-6 text-gray-500 gap-2">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span className="text-xs">Chargement…</span>
+                    </div>
+                  ) : filtered.length === 0 ? (
+                    <p className="text-xs text-gray-600 text-center py-6">Aucun résultat.</p>
+                  ) : (
+                    filtered.map(item => {
+                      const already = currentRefs.has(item.id)
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => {
+                            if (!already) { onAdd(item.id); setOpen(false); setSearch('') }
+                          }}
+                          disabled={already}
+                          className={cn(
+                            'w-full flex items-start gap-2.5 px-3 py-2.5 text-left transition-colors border-b border-gray-800/60 last:border-0',
+                            already
+                              ? 'opacity-50 cursor-default bg-emerald-950/20'
+                              : 'hover:bg-gray-800/60 cursor-pointer',
+                          )}
+                        >
+                          {item.has_content
+                            ? <BookOpen className={cn('h-3.5 w-3.5 shrink-0 mt-0.5', already ? 'text-emerald-500' : 'text-gray-500')} />
+                            : <Lock className={cn('h-3.5 w-3.5 shrink-0 mt-0.5', already ? 'text-emerald-500' : 'text-amber-600/70')} />
+                          }
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium text-gray-200 truncate">
+                              {item.auteur}, <em>{item.oeuvre}</em>
+                            </p>
+                            <p className="text-[10px] text-gray-500 truncate mt-0.5">{item.titre}</p>
+                          </div>
+                          <div className="ml-auto flex items-center gap-1.5 shrink-0 mt-0.5">
+                            {!item.has_content && (
+                              <span className="text-[10px] text-amber-600/80 bg-amber-950/40 border border-amber-800/30 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                Protégé
+                              </span>
+                            )}
+                            {already && (
+                              <span className="text-[10px] text-emerald-500 whitespace-nowrap">✓ Ajouté</span>
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+
+                {/* Footer — fermer */}
+                <div className="px-3 py-2 border-t border-gray-800 flex justify-end">
+                  <button
+                    onClick={() => { setOpen(false); setSearch('') }}
+                    className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    Fermer
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {corpusRefs.length === 0 && !open && (
+          <span className="text-xs text-primary-600 italic">Aucun texte — cliquez pour en ajouter</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // === Badge Corpus ===
 
 import type { CorpusSuggestion } from '@/shared/schemas'
@@ -845,20 +1155,60 @@ function CorpusBadge({
   status,
   corpusRef,
   suggestion,
-  sequenceCorpusCount,
+  sequenceCorpusRefs,
+  onAssociate,
 }: {
   status?: string
   corpusRef?: string
   suggestion?: CorpusSuggestion
-  sequenceCorpusCount: number
+  sequenceCorpusRefs: string[]
+  onAssociate?: (ref: string) => void
 }) {
+  const [showPicker, setShowPicker] = useState(false)
+
   if (!status || status === 'non_requis') return null
 
+  // Bouton "Associer" : visible quand un texte manque ET la séquence en a au moins un
+  const associerEl = onAssociate && sequenceCorpusRefs.length > 0 ? (
+    <div className="relative">
+      <button
+        onClick={() => {
+          if (sequenceCorpusRefs.length === 1) {
+            onAssociate(sequenceCorpusRefs[0])
+          } else {
+            setShowPicker(v => !v)
+          }
+        }}
+        className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-950/50 text-emerald-400 border border-emerald-700/40 hover:bg-emerald-900/40 transition-colors whitespace-nowrap"
+        title={
+          sequenceCorpusRefs.length === 1
+            ? `Associer "${sequenceCorpusRefs[0].replace(/-/g, ' ')}"`
+            : 'Choisir un texte du corpus à associer'
+        }
+      >
+        <BookOpen className="h-2.5 w-2.5 shrink-0" />
+        {sequenceCorpusRefs.length === 1 ? 'Associer' : 'Associer un texte'}
+      </button>
+      {showPicker && sequenceCorpusRefs.length > 1 && (
+        <div className="absolute left-0 top-full mt-1 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-50 min-w-[13rem] overflow-hidden">
+          {sequenceCorpusRefs.map(ref => (
+            <button
+              key={ref}
+              onClick={() => { onAssociate(ref); setShowPicker(false) }}
+              className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-800 transition-colors border-b border-gray-800/60 last:border-0 capitalize"
+            >
+              {ref.replace(/-/g, ' ')}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  ) : null
+
   // Texte trouvé : n'afficher que si plusieurs textes coexistent dans la séquence
-  // (sinon l'info est déjà visible dans l'en-tête de séquence)
+  // (sinon l'info est déjà visible dans l'en-tête)
   if (status === 'trouve' && corpusRef) {
-    if (sequenceCorpusCount <= 1) return null
-    // Plusieurs textes → indiquer lequel est utilisé ici (compact)
+    if (sequenceCorpusRefs.length <= 1) return null
     const shortLabel = corpusRef.split('-').slice(0, 2).join(' ')
     return (
       <div className="mt-2 mb-1">
@@ -873,11 +1223,12 @@ function CorpusBadge({
   // Texte manquant avec suggestion IA
   if (status === 'manquant' && suggestion) {
     return (
-      <div className="mt-2 mb-1">
+      <div className="mt-2 mb-1 flex flex-wrap items-center gap-1.5">
         <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-amber-950/50 text-amber-400 border border-amber-700/40">
           <AlertTriangle className="h-3 w-3 shrink-0" />
           Texte manquant · Suggestion : {suggestion.auteur}, <em className="ml-0.5">{suggestion.oeuvre}</em>
         </span>
+        {associerEl}
       </div>
     )
   }
@@ -885,11 +1236,12 @@ function CorpusBadge({
   // Texte manquant sans suggestion
   if (status === 'manquant' || status === 'manquant_sans_suggestion') {
     return (
-      <div className="mt-2 mb-1">
+      <div className="mt-2 mb-1 flex flex-wrap items-center gap-1.5">
         <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-gray-900/50 text-gray-500 border border-gray-700/30">
           <AlertTriangle className="h-3 w-3 shrink-0" />
           Aucun texte disponible dans le corpus
         </span>
+        {associerEl}
       </div>
     )
   }

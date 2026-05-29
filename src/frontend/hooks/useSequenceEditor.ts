@@ -5,7 +5,7 @@ import type { Sequence, Seance, Activite, Ressource } from '@/shared/schemas'
 
 export type SequencePath =
   | { level: 'sequence'; field: keyof Pick<Sequence, 'titre' | 'niveau' | 'theme' | 'problematique' | 'evaluation_finale'> }
-  | { level: 'sequence'; field: 'objectifs' | 'competences' }
+  | { level: 'sequence'; field: 'objectifs' | 'competences' | 'corpus_refs' }
   | { level: 'seance'; seanceIndex: number; field: keyof Pick<Seance, 'titre' | 'duree'> }
   | { level: 'seance'; seanceIndex: number; field: 'objectifs' }
   | { level: 'activite'; seanceIndex: number; activiteIndex: number; field: keyof Pick<Activite, 'titre' | 'type' | 'duree' | 'consigne'> }

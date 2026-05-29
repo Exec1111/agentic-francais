@@ -17,17 +17,20 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
 
-    if (!body.contenu || !body.id) {
+    if (!body.id) {
       return NextResponse.json(
-        { error: 'Les champs id et contenu sont obligatoires' },
+        { error: 'Le champ id est obligatoire' },
         { status: 400 }
       )
     }
 
-    const checksum = crypto.createHash('sha256').update(body.contenu, 'utf8').digest('hex')
+    // contenu peut être vide pour les œuvres protégées par droits d'auteur
+    const contenu = body.contenu ?? ''
+    const checksum = crypto.createHash('sha256').update(contenu, 'utf8').digest('hex')
 
     const parsed = CorpusItemSchema.safeParse({
       ...body,
+      contenu,
       checksum,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

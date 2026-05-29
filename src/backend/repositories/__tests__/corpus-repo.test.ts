@@ -131,3 +131,36 @@ describe('applyScoreThreshold', () => {
     expect(applyScoreThreshold([], false)).toHaveLength(0)
   })
 })
+
+// ── Tests has_content ─────────────────────────────────────────────────────────
+//
+// La fonction listCorpus() (qui appelle rowToCorpusMeta) requiert SQLite et
+// le filesystem, donc elle n'est pas testable unitairement ici.
+//
+// On vérifie la LOGIQUE de has_content via une simulation inline de la règle :
+//   has_content = (contenu !== '')
+//
+// Les tests d'intégration complètes sont dans :
+//   src/backend/resources/__tests__/exercice.test.ts
+//   src/backend/resources/__tests__/extrait-oeuvre.test.ts
+
+describe('has_content — logique dérivée (règle : contenu !== "")', () => {
+  const hasContent = (contenu: string) => contenu !== ''
+
+  it('retourne true pour un contenu non vide', () => {
+    expect(hasContent('Longtemps, je me suis couché...')).toBe(true)
+    expect(hasContent(' ')).toBe(true)            // espace seul = non vide
+    expect(hasContent('\n')).toBe(true)            // saut de ligne = non vide
+  })
+
+  it('retourne false pour une chaîne vide (référence protégée)', () => {
+    expect(hasContent('')).toBe(false)
+  })
+
+  it("la chaîne vide '' est l'unique cas protected", () => {
+    // Garantit qu'on ne teste pas null/undefined (non NULL dans la DB)
+    const validContentValues = ['texte', ' ', '\n', '\t', 'a']
+    validContentValues.forEach(v => expect(hasContent(v)).toBe(true))
+    expect(hasContent('')).toBe(false)
+  })
+})

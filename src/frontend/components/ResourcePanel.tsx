@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   X, Sparkles, GraduationCap, User, Edit3, Eye,
-  Printer, CheckCircle2, Loader2, Plus, AlertCircle, Save,
+  Printer, CheckCircle2, Loader2, Plus, AlertCircle, Save, RefreshCw, Trash2, Lock,
 } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import type { RessourcePaire, RessourceStructuree, RessourceType } from '@/shared/schemas'
@@ -50,6 +50,9 @@ export interface ResourcePanelContext {
   activiteType: string
   activiteConsigne: string
   corpusRef?: string
+  /** Si true, le panel s'ouvre sans sélectionner la première ressource existante
+   *  → les chips de suggestions sont au premier plan pour générer un nouveau type. */
+  startInGenerateMode?: boolean
 }
 
 interface ResourcePanelProps {
@@ -183,10 +186,16 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
   const [isLoadingDb, setIsLoadingDb] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [isRegenerating, setIsRegenerating] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [generatingType, setGeneratingType] = useState<RessourceType | null>(null)
   const [batchRunning, setBatchRunning] = useState(false)
   const [suggestedTypes, setSuggestedTypes] = useState<RessourceType[]>([])
   const [error, setError] = useState<string | null>(null)
+  // null = inconnu (pas encore chargé), true = contenu disponible, false = protégé
+  const [corpusHasContent, setCorpusHasContent] = useState<boolean | null>(null)
+  const [corpusMeta, setCorpusMeta] = useState<{ auteur: string; oeuvre: string; pages?: string } | null>(null)
 
   // Ref pour détecter un vrai changement de ressource (vs mise à jour de pairs après save)
   const currentResourceIdRef = useRef<string | null>(null)
@@ -219,13 +228,36 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
           if (data.ressources && data.ressources.length > 0) {
             const grouped = groupIntoPairs(data.ressources as RessourceStructuree[])
             setPairs(grouped)
-            setSelectedIdx(0)
+            // En mode "générer un nouveau type", on ne sélectionne pas la première ressource
+            // afin que les chips de suggestions soient visibles et cliquables au premier plan.
+            if (!context.startInGenerateMode) {
+              setSelectedIdx(0)
+            }
           }
         })
         .catch(console.error)
         .finally(() => setIsLoadingDb(false))
     }
   }, [isOpen, context.activiteId, context.activiteType])
+
+  // ── Vérification disponibilité du texte corpus ────────────────────────────
+
+  useEffect(() => {
+    if (!isOpen || !context.corpusRef) {
+      setCorpusHasContent(null)
+      setCorpusMeta(null)
+      return
+    }
+    fetch(`/api/corpus/${encodeURIComponent(context.corpusRef)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.item) {
+          setCorpusHasContent(data.item.contenu !== '')
+          setCorpusMeta({ auteur: data.item.auteur, oeuvre: data.item.oeuvre, pages: data.item.pages })
+        }
+      })
+      .catch(() => { /* silencieux */ })
+  }, [isOpen, context.corpusRef])
 
   // ── Sync contenu édité avec la sélection ──────────────────────────────────
   // Règle : on réinitialise l'édition UNIQUEMENT si on change de ressource.
@@ -242,6 +274,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
       setEditedContent(resource.contenu_markdown)
       setIsEditing(false)
       setSaveSuccess(false)
+      setConfirmDelete(false)
     }
     // Si même ressource (ex : pairs mis à jour après save), on ne touche à rien
   }, [selectedIdx, activeAudience, pairs])
@@ -373,6 +406,56 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
     }
   }, [currentResource, editedContent, isSaving, selectedIdx])
 
+  // ── Régénération complète de la ressource sélectionnée ───────────────────
+
+  const handleRegenerate = useCallback(async () => {
+    if (!currentPaire) return
+    const type = currentPaire.professeur.type as RessourceType
+    setIsRegenerating(true)
+    setError(null)
+
+    try {
+      // 1. Supprimer l'ancienne paire en DB (les deux versions : prof + élève)
+      await fetch(`/api/resources?id=${currentPaire.professeur.id}`, { method: 'DELETE' })
+
+      // 2. Générer la nouvelle paire (la route la sauvegarde automatiquement en DB)
+      const newPaire = await generateOne(type)
+      if (!newPaire) return // generateOne a déjà positionné l'erreur
+
+      // 3. Remplacer dans l'état local — le changement d'ID déclenchera le reset via currentResourceIdRef
+      setPairs(prev => prev.map((p, idx) => idx === selectedIdx ? newPaire : p))
+      setActiveAudience('eleve')
+    } finally {
+      setIsRegenerating(false)
+    }
+  }, [currentPaire, generateOne, selectedIdx])
+
+  // ── Suppression de la ressource sélectionnée ──────────────────────────────
+
+  const handleDelete = useCallback(async () => {
+    if (!currentPaire) return
+    setIsDeleting(true)
+    setError(null)
+
+    try {
+      const res = await fetch(`/api/resources?id=${currentPaire.professeur.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || `HTTP ${res.status}`)
+      }
+
+      // Retirer la paire de l'état local
+      const newPairs = pairs.filter((_, idx) => idx !== selectedIdx)
+      setPairs(newPairs)
+      setSelectedIdx(newPairs.length > 0 ? Math.min(selectedIdx ?? 0, newPairs.length - 1) : null)
+      setConfirmDelete(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur lors de la suppression')
+    } finally {
+      setIsDeleting(false)
+    }
+  }, [currentPaire, pairs, selectedIdx])
+
   // ── Fermeture avec auto-save si modifications en cours ────────────────────
 
   const handleClose = useCallback(async () => {
@@ -426,6 +509,21 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
                 <X className="h-4 w-4" />
               </button>
             </div>
+
+            {/* ── Bandeau corpus protégé ── */}
+            {corpusHasContent === false && corpusMeta && (
+              <div className="px-4 py-2.5 border-b border-amber-800/30 bg-amber-950/20 shrink-0 flex items-start gap-2.5">
+                <Lock className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-amber-400">Texte protégé — génération par référence</p>
+                  <p className="text-[11px] text-amber-500/70 mt-0.5 leading-relaxed">
+                    <em>{corpusMeta.oeuvre}</em> de {corpusMeta.auteur}{corpusMeta.pages ? ` (${corpusMeta.pages})` : ''} est sous droits d'auteur.
+                    Les ressources seront générées <strong>en référence à cette œuvre</strong> sans reproduire le texte.
+                    Pour <em>Extrait d'œuvre</em>, un espace réservé [texte à insérer] sera créé.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* ── Sélecteur de ressources (tabs) ── */}
             <div className="px-4 py-3 border-b border-gray-800/60 shrink-0 space-y-2.5">
@@ -525,6 +623,21 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
                       )}
                     </>
                   )}
+                </div>
+              )}
+
+              {/* Mode "générer un nouveau type" : ressources existantes mais rien de sélectionné */}
+              {pairs.length > 0 && selectedIdx === null && !isGeneratingAny && (
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-10 space-y-3">
+                  <div className="h-12 w-12 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                    <Plus className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-white text-sm">Générer un nouveau type</h4>
+                    <p className="text-xs text-gray-500 mt-1 max-w-xs leading-relaxed">
+                      Cliquez sur un type en pointillés ci-dessus pour générer une ressource supplémentaire.
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -661,8 +774,10 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
             </div>
 
             {/* ── Footer ── */}
-            <div className="px-4 py-3 border-t border-gray-800/80 bg-gray-900/40 flex items-center justify-between shrink-0">
-              <div className="flex gap-2">
+            <div className="px-4 py-3 border-t border-gray-800/80 bg-gray-900/40 flex items-center justify-between shrink-0 gap-2">
+
+              {/* Impression */}
+              <div className="flex gap-1.5 shrink-0">
                 {currentResource && (
                   <>
                     {currentPaire?.eleve && (
@@ -684,17 +799,71 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
                   </>
                 )}
               </div>
-              <button
-                onClick={handleClose}
-                className={cn(
-                  'text-xs px-3 py-1.5 transition-colors',
-                  hasUnsavedChanges
-                    ? 'text-amber-500 hover:text-amber-300'
-                    : 'text-gray-500 hover:text-gray-300',
+
+              {/* Actions sur la ressource + Fermer */}
+              <div className="flex items-center gap-1.5 shrink-0">
+
+                {/* Régénérer */}
+                {currentPaire && (
+                  <button
+                    onClick={handleRegenerate}
+                    disabled={isRegenerating || isGeneratingAny || isDeleting}
+                    title="Régénérer entièrement cette ressource (remplace le contenu actuel)"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-700/60 text-xs text-gray-400 hover:text-white hover:border-gray-600 hover:bg-gray-800/60 disabled:opacity-40 transition-all font-medium"
+                  >
+                    {isRegenerating
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <RefreshCw className="h-3.5 w-3.5" />}
+                    {isRegenerating ? 'Régénération…' : 'Régénérer'}
+                  </button>
                 )}
-              >
-                {hasUnsavedChanges ? 'Fermer (auto-save)' : 'Fermer'}
-              </button>
+
+                {/* Supprimer — deux clics (confirm) */}
+                {currentPaire && (
+                  confirmDelete ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={handleDelete}
+                        disabled={isDeleting}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-600/20 border border-red-700/50 text-xs text-red-400 hover:bg-red-600/30 disabled:opacity-50 transition-all font-semibold"
+                      >
+                        {isDeleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                        Confirmer
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelete(false)}
+                        className="text-xs text-gray-500 hover:text-gray-300 px-1.5 transition-colors"
+                      >
+                        Annuler
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDelete(true)}
+                      disabled={isRegenerating || isDeleting}
+                      title="Supprimer cette ressource"
+                      className="p-1.5 rounded-lg border border-gray-800 text-gray-600 hover:text-red-400 hover:border-red-800/50 hover:bg-red-500/5 disabled:opacity-40 transition-all"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )
+                )}
+
+                <div className="w-px h-4 bg-gray-800 mx-0.5" />
+
+                {/* Fermer */}
+                <button
+                  onClick={handleClose}
+                  className={cn(
+                    'text-xs px-3 py-1.5 transition-colors',
+                    hasUnsavedChanges
+                      ? 'text-amber-500 hover:text-amber-300'
+                      : 'text-gray-500 hover:text-gray-300',
+                  )}
+                >
+                  {hasUnsavedChanges ? 'Fermer (auto-save)' : 'Fermer'}
+                </button>
+              </div>
             </div>
           </motion.div>
         </>

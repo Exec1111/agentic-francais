@@ -33,8 +33,11 @@ export const exerciceDefinition: ResourceTypeDefinition<ExerciceContenu> = {
   // ── Prompt de génération ───────────────────────────────────────────────────
 
   buildPrompt: (ctx) => {
-    const corpusBlock = ctx.corpusItem
-      ? `\nTEXTE SOURCE OFFICIEL — les exercices doivent s'appuyer EXCLUSIVEMENT sur ce texte :
+    let corpusBlock = ''
+    if (ctx.corpusItem) {
+      if (ctx.corpusItem.contenu) {
+        // Texte disponible intégralement → injection directe
+        corpusBlock = `\nTEXTE SOURCE OFFICIEL — les exercices doivent s'appuyer EXCLUSIVEMENT sur ce texte :
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Auteur     : ${ctx.corpusItem.auteur}
 Œuvre      : ${ctx.corpusItem.oeuvre}
@@ -43,7 +46,19 @@ Référence  : ${ctx.corpusItem.edition_reference}${ctx.corpusItem.pages ? ` —
 ${ctx.corpusItem.contenu}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚠️ Toute citation dans les exercices doit être extraite MOT POUR MOT de ce texte.`
-      : ''
+      } else {
+        // Texte protégé / non disponible → référence bibliographique uniquement
+        corpusBlock = `\nRÉFÉRENCE BIBLIOGRAPHIQUE (texte protégé — non reproduit ici) :
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Auteur     : ${ctx.corpusItem.auteur}
+Œuvre      : ${ctx.corpusItem.oeuvre}
+Référence  : ${ctx.corpusItem.edition_reference}${ctx.corpusItem.pages ? ` — pages ${ctx.corpusItem.pages}` : ''}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ Le texte intégral n'est pas disponible (droits d'auteur). Les élèves auront le texte en main.
+   Formule des exercices EN RÉFÉRENCE à cette œuvre sans citer d'extraits mot pour mot.
+   Rédige des questions d'analyse, de compréhension, de style ou de grammaire adaptées au thème.`
+      }
+    }
 
     return [
       {
