@@ -1,7 +1,8 @@
 # Guide : Ajouter un Type de Ressource
 
 > Documentation technique pour l'ajout et la maintenance des types de ressources pédagogiques.  
-> **Dernière mise à jour** : 11 juin 2026
+> **Dernière mise à jour** : 11 juin 2026  
+> Voir aussi : [`doc/concepts.md`](./concepts.md) pour le glossaire complet des notions métier.
 
 ---
 
@@ -299,7 +300,7 @@ Avant de considérer le type comme complet :
 
 | Type | Catégorie | Champs PROF ONLY | Suggéré pour |
 |------|-----------|-----------------|--------------|
-| `exercice` | TWO_VERSIONS | `items[].correction`, `items[].justification`, `conseil_correction` | `exercice`, `evaluation` |
+| `fiche_questions` | TWO_VERSIONS | `items[].correction`, `items[].justification`, `conseil_correction` | `exercice`, `evaluation` |
 | `cours` | TWO_VERSIONS | `sections[].note_prof`, `note_prof_globale` | `lecture`, `oral` |
 | `extrait_oeuvre` | TWO_VERSIONS | `questions[].reponse_attendue`, `questions[].elements_analyse`, `note_prof` | `lecture`, `debat` |
 | `bilan` | TWO_VERSIONS | `checklist[].reponse_correcte`, `checklist[].remediation` | `evaluation`, `exercice` |

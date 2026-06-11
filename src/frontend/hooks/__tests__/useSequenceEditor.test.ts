@@ -36,7 +36,7 @@ describe('useSequenceEditor Reducer', () => {
               {
                 id: 'res-act-1',
                 titre: 'Exercice de repérage',
-                type: 'exercice',
+                type: 'fiche_questions',
                 format_exercice: 'texte_a_trous',
                 status: 'empty',
                 contenu: ''
@@ -80,66 +80,6 @@ describe('useSequenceEditor Reducer', () => {
     expect(nextState.past).toHaveLength(1)
     expect(nextState.past[0].titre).toBe('La poésie lyrique')
     expect(nextState.isDirty).toBe(true)
-  })
-
-  it('should update resource status at seance level with UPDATE_RESSOURCE_STATUS', () => {
-    const stateWithSeq = { ...initialState, current: mockSequence }
-    const nextState = editorReducer(stateWithSeq, {
-      type: 'UPDATE_RESSOURCE_STATUS',
-      seanceIndex: 0,
-      ressourceId: 'res-seance-1',
-      status: 'generating'
-    })
-
-    expect(nextState.current?.seances[0].ressources?.[0].status).toBe('generating')
-    expect(nextState.past).toHaveLength(1)
-    expect(nextState.past[0].seances[0].ressources?.[0].status).toBe('empty')
-  })
-
-  it('should update resource status at activite level with UPDATE_RESSOURCE_STATUS', () => {
-    const stateWithSeq = { ...initialState, current: mockSequence }
-    const nextState = editorReducer(stateWithSeq, {
-      type: 'UPDATE_RESSOURCE_STATUS',
-      seanceIndex: 0,
-      activiteIndex: 0,
-      ressourceId: 'res-act-1',
-      status: 'generating'
-    })
-
-    expect(nextState.current?.seances[0].activites[0].ressources?.[0].status).toBe('generating')
-    expect(nextState.past).toHaveLength(1)
-    expect(nextState.past[0].seances[0].activites[0].ressources?.[0].status).toBe('empty')
-  })
-
-  it('should update resource content at seance level with UPDATE_RESSOURCE_CONTENT', () => {
-    const stateWithSeq = { ...initialState, current: mockSequence }
-    const nextState = editorReducer(stateWithSeq, {
-      type: 'UPDATE_RESSOURCE_CONTENT',
-      seanceIndex: 0,
-      ressourceId: 'res-seance-1',
-      contenu: '# Cours sur le lyrisme\nLe lyrisme est...'
-    })
-
-    expect(nextState.current?.seances[0].ressources?.[0].contenu).toBe('# Cours sur le lyrisme\nLe lyrisme est...')
-    expect(nextState.current?.seances[0].ressources?.[0].status).toBe('ready')
-    expect(nextState.past).toHaveLength(1)
-    expect(nextState.past[0].seances[0].ressources?.[0].contenu).toBe('')
-  })
-
-  it('should update resource content and format at activite level with UPDATE_RESSOURCE_CONTENT', () => {
-    const stateWithSeq = { ...initialState, current: mockSequence }
-    const nextState = editorReducer(stateWithSeq, {
-      type: 'UPDATE_RESSOURCE_CONTENT',
-      seanceIndex: 0,
-      activiteIndex: 0,
-      ressourceId: 'res-act-1',
-      contenu: 'Remplir les trous : Le poète exprime sa [tristesse]',
-      formatExercice: 'texte_a_trous'
-    })
-
-    expect(nextState.current?.seances[0].activites[0].ressources?.[0].contenu).toBe('Remplir les trous : Le poète exprime sa [tristesse]')
-    expect(nextState.current?.seances[0].activites[0].ressources?.[0].status).toBe('ready')
-    expect(nextState.current?.seances[0].activites[0].ressources?.[0].format_exercice).toBe('texte_a_trous')
   })
 
   it('should handle UNDO and REDO correctly', () => {

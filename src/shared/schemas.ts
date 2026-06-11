@@ -82,7 +82,7 @@ export const RessourceTypeSchema = z.enum([
   'bilan',
   'extrait_oeuvre',
   'oeuvre_complete',
-  'exercice',
+  'fiche_questions',
   'grille_evaluation',
   'fiche_methode',
   'fiche_lecture',

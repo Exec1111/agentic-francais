@@ -6,8 +6,8 @@ import {
 import { buildContextePedagogique } from '../prompt-context'
 
 export const exerciceDefinition: ResourceTypeDefinition<ExerciceContenu> = {
-  type: 'exercice',
-  label: 'Exercice',
+  type: 'fiche_questions',
+  label: 'Fiche questions',
   category: 'TWO_VERSIONS',
   schema: ExerciceContenuSchema,
 

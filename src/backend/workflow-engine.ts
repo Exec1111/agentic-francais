@@ -386,37 +386,6 @@ async function assembleSequence(
 
       const activites = await Promise.all(
         rawActivites.map(async (act, actIdx) => {
-          const ressources = []
-
-          if (act.type === 'exercice') {
-            ressources.push({
-              id: `res-seance-${s.numero}-act-${actIdx}-exercice`,
-              titre: `Fiche d'exercices : ${act.titre}`,
-              type: 'exercice' as const,
-              format_exercice: 'libre' as const,
-              status: 'empty' as const,
-              contenu: '',
-              description: `Fiche d'exercices d'application sur la notion : ${act.titre}`,
-            })
-            ressources.push({
-              id: `res-seance-${s.numero}-act-${actIdx}-correction`,
-              titre: `Fiche de correction : ${act.titre}`,
-              type: 'exercice' as const,
-              format_exercice: 'libre' as const,
-              status: 'empty' as const,
-              contenu: '',
-              description: `Corrigé détaillé de la fiche d'exercices`,
-            })
-          } else if (act.type === 'lecture') {
-            ressources.push({
-              id: `res-seance-${s.numero}-act-${actIdx}-extrait`,
-              titre: `Extrait d'œuvre : ${act.titre}`,
-              type: 'extrait_oeuvre' as const,
-              status: 'empty' as const,
-              contenu: '',
-              description: `Texte littéraire d'étude pour l'activité de lecture`,
-            })
-          }
 
           // Corpus : pré-sélection prioritaire, sinon recherche autonome (fallback)
           let corpusResult: {
@@ -446,32 +415,12 @@ async function assembleSequence(
 
           return {
             ...act,
-            ressources: act.ressources?.length ? act.ressources : ressources,
             corpus_ref: corpusResult.corpus_ref,
             corpus_status: corpusResult.corpus_status,
             corpus_suggestion: corpusResult.corpus_suggestion,
           }
         })
       )
-
-      const seanceRessources = [
-        {
-          id: `res-seance-${s.numero}-cours`,
-          titre: `Cours théorique : ${s.titre}`,
-          type: 'cours' as const,
-          status: 'empty' as const,
-          contenu: '',
-          description: `Synthèse théorique complète pour la séance : ${s.titre}`,
-        },
-        {
-          id: `res-seance-${s.numero}-bilan`,
-          titre: `Bilan & Synthèse : ${s.titre}`,
-          type: 'bilan' as const,
-          status: 'empty' as const,
-          contenu: '',
-          description: `Fiche bilan de fin de séance et points clés à retenir`,
-        },
-      ]
 
       return {
         numero: s.numero,
@@ -480,7 +429,7 @@ async function assembleSequence(
         objectifs: s.objectifs,
         activites,
         evaluation: undefined,
-        ressources: seanceRessources,
+        ressources: [],
       }
     })
   )

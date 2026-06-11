@@ -10,13 +10,11 @@ import {
 import { cn } from '@/shared/utils'
 import { EditableText } from './EditableText'
 import { EditableList } from './EditableList'
-import { ResourceSection } from './ResourceSection'
-import { ResourceDrawer } from './ResourceDrawer'
 import { ResourcePanel } from './ResourcePanel'
 import { CorpusViewer } from './CorpusViewer'
 import type { ResourcePanelContext } from './ResourcePanel'
 import type { useSequenceEditor, SequencePath } from '@/frontend/hooks/useSequenceEditor'
-import type { Activite, Ressource, RessourceType, ExerciceFormat } from '@/shared/schemas'
+import type { Activite } from '@/shared/schemas'
 
 // Config visuelle des types de ressources IA (utilisée dans l'accordéon)
 const RESOURCE_TYPE_CONFIG: Record<string, { label: string; chip: string }> = {
@@ -24,7 +22,7 @@ const RESOURCE_TYPE_CONFIG: Record<string, { label: string; chip: string }> = {
   bilan:             { label: 'Bilan',          chip: 'bg-green-500/10 text-green-400 border-green-600/30' },
   extrait_oeuvre:    { label: "Extrait d'œuvre",chip: 'bg-purple-500/10 text-purple-400 border-purple-600/30' },
   oeuvre_complete:   { label: 'Texte complet',  chip: 'bg-amber-500/10 text-amber-400 border-amber-600/30' },
-  exercice:          { label: 'Exercice',       chip: 'bg-pink-500/10 text-pink-400 border-pink-600/30' },
+  fiche_questions:   { label: 'Fiche questions', chip: 'bg-pink-500/10 text-pink-400 border-pink-600/30' },
   grille_evaluation: { label: "Grille d'éval.", chip: 'bg-orange-500/10 text-orange-400 border-orange-600/30' },
   fiche_methode:     { label: 'Fiche méthode',  chip: 'bg-cyan-500/10 text-cyan-400 border-cyan-600/30' },
   fiche_lecture:     { label: 'Fiche lecture',  chip: 'bg-indigo-500/10 text-indigo-400 border-indigo-600/30' },
@@ -51,22 +49,19 @@ const ACTIVITY_TYPES = [
 // Types d'activités qui bénéficient d'un texte du corpus (même définition que côté serveur)
 const CORPUS_ACTIVITE_TYPES = new Set(['lecture', 'exercice', 'production_ecrite'])
 
-type EditorReturn = ReturnType<typeof useSequenceEditor>
-
-interface DrawerState {
-  ressource: Ressource
-  seanceIndex: number
-  activiteIndex?: number
-  corpusRef?: string
-  sequenceContext: {
-    sequenceTitle: string
-    niveau: string
-    theme: string
-    seanceTitle: string
-    activiteTitle?: string
-    activiteType?: string
-  }
+// Types de ressources suggérés par type d'activité (affichage inline)
+const SUGGESTED_RESOURCES: Record<string, string[]> = {
+  exercice: ['fiche_questions'],
+  lecture: ['extrait_oeuvre', 'fiche_questions'],
+  production_ecrite: ['fiche_methode'],
+  evaluation: ['fiche_questions', 'grille_evaluation'],
+  debat: ['fiche_methode'],
+  oral: ['fiche_methode'],
+  collaboration: [],
+  recherche: ['fiche_methode'],
 }
+
+type EditorReturn = ReturnType<typeof useSequenceEditor>
 
 interface SequenceEditorProps {
   editor: EditorReturn
@@ -81,7 +76,6 @@ const PANEL_CLOSED: ResourcePanelContext = {
 
 export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
   const { sequence } = editor
-  const [drawer, setDrawer] = useState<DrawerState | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
   const [panelContext, setPanelContext] = useState<ResourcePanelContext>(PANEL_CLOSED)
   // refreshKey[activiteId] s'incrémente à chaque fermeture du panel → ActiviteBlock recharge son compteur
@@ -193,32 +187,6 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
       corpus_suggestion: activite.corpus_suggestion,
     })
   }, [sequence, provider, editor])
-
-  const openDrawer = useCallback((
-    ressource: Ressource,
-    seanceIndex: number,
-    activiteIndex: number | undefined,
-    seanceTitle: string,
-    activiteTitle?: string,
-    activiteType?: string,
-    corpusRef?: string,
-  ) => {
-    if (!sequence) return
-    setDrawer({
-      ressource,
-      seanceIndex,
-      activiteIndex,
-      corpusRef,
-      sequenceContext: {
-        sequenceTitle: sequence.titre,
-        niveau: sequence.niveau,
-        theme: sequence.theme,
-        seanceTitle,
-        activiteTitle,
-        activiteType,
-      },
-    })
-  }, [sequence])
 
   if (!sequence) return null
 
@@ -402,7 +370,6 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
             seanceIndex={si}
             totalSeances={sequence.seances.length}
             editor={editor}
-            onOpenDrawer={openDrawer}
             onOpenPanel={openResourcePanel}
             onRegenerate={handleRegenerateActivite}
             sequenceCorpusRefs={sequence.corpus_refs ?? []}
@@ -429,28 +396,6 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
       </div>
     </motion.div>
 
-    {/* Drawer ressources — ancien système (backward compat) */}
-    <ResourceDrawer
-      isOpen={drawer !== null}
-      onClose={() => setDrawer(null)}
-      ressource={drawer?.ressource ?? null}
-      seanceIndex={drawer?.seanceIndex ?? 0}
-      activiteIndex={drawer?.activiteIndex}
-      corpusRef={drawer?.corpusRef}
-      sequenceContext={drawer?.sequenceContext ?? { sequenceTitle: '', niveau: '', theme: '', seanceTitle: '' }}
-      onUpdateContent={(si, ai, id, contenu, fmt) => {
-        editor.updateRessourceContent(si, ai, id, contenu, fmt)
-        setDrawer((d) => d && d.ressource.id === id
-          ? { ...d, ressource: { ...d.ressource, contenu, status: 'ready', format_exercice: fmt ?? d.ressource.format_exercice } }
-          : d)
-      }}
-      onUpdateStatus={(si, ai, id, status) => {
-        editor.updateRessourceStatus(si, ai, id, status)
-        setDrawer((d) => d && d.ressource.id === id ? { ...d, ressource: { ...d.ressource, status } } : d)
-      }}
-      provider={provider}
-    />
-
     {/* Resource Panel — nouveau système structuré (élève + prof) */}
     <ResourcePanel
       isOpen={panelOpen}
@@ -472,7 +417,6 @@ function SeanceBlock({
   seanceIndex,
   totalSeances,
   editor,
-  onOpenDrawer,
   onOpenPanel,
   onRegenerate,
   sequenceCorpusRefs,
@@ -486,7 +430,6 @@ function SeanceBlock({
   seanceIndex: number
   totalSeances: number
   editor: EditorReturn
-  onOpenDrawer: (r: Ressource, si: number, ai: number | undefined, seanceTitre: string, activiteTitre?: string, activiteType?: string, corpusRef?: string) => void
   onOpenPanel: (ctx: ResourcePanelContext) => void
   onRegenerate: (si: number, ai: number, motif: string) => Promise<void>
   sequenceCorpusRefs: string[]
@@ -585,20 +528,6 @@ function SeanceBlock({
               />
             </div>
 
-            {/* Ressources de séance */}
-            <div className="px-4 py-3 border-b border-gray-800/50">
-              <span className="text-xs text-gray-600 uppercase font-semibold block mb-1">Ressources de séance</span>
-              <ResourceSection
-                ressources={seance.ressources || []}
-                onOpen={(r) => onOpenDrawer(r, seanceIndex, undefined, seance.titre)}
-                onAdd={(type, fmt, titre) => {
-                  const id = `res-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-                  editor.addRessource(seanceIndex, undefined, { id, titre: titre || type, type, format_exercice: fmt, status: 'empty', contenu: '' })
-                }}
-                onRemove={(id) => editor.removeRessource(seanceIndex, undefined, id)}
-              />
-            </div>
-
             {/* Activités */}
             <div className="p-4 space-y-3">
               <span className="text-xs text-gray-600 uppercase font-semibold">Activités</span>
@@ -611,7 +540,6 @@ function SeanceBlock({
                   activiteIndex={ai}
                   totalActivites={seance.activites.length}
                   editor={editor}
-                  onOpenDrawer={onOpenDrawer}
                   onOpenPanel={onOpenPanel}
                   onRegenerate={onRegenerate}
                   seanceTitre={seance.titre}
@@ -654,7 +582,6 @@ function ActiviteBlock({
   activiteIndex,
   totalActivites,
   editor,
-  onOpenDrawer,
   onOpenPanel,
   onRegenerate,
   seanceTitre,
@@ -671,7 +598,6 @@ function ActiviteBlock({
   activiteIndex: number
   totalActivites: number
   editor: EditorReturn
-  onOpenDrawer: (r: Ressource, si: number, ai: number | undefined, seanceTitre: string, activiteTitre?: string, activiteType?: string, corpusRef?: string) => void
   onOpenPanel: (ctx: ResourcePanelContext) => void
   onRegenerate: (si: number, ai: number, motif: string) => Promise<void>
   seanceTitre: string
@@ -887,14 +813,28 @@ function ActiviteBlock({
         })
 
         if (resourcePairs.length === 0) {
+          const suggestions = SUGGESTED_RESOURCES[activite.type] ?? []
           return (
             <div className="mt-2">
               <button
                 onClick={openPanel}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 w-full rounded-lg border border-dashed border-blue-700/40 text-xs text-blue-400/80 hover:text-blue-300 hover:border-blue-600/60 hover:bg-blue-500/5 transition-all font-medium"
+                className="flex items-center gap-2 px-2.5 py-2 w-full rounded-lg border border-dashed border-blue-700/40 text-xs hover:border-blue-600/60 hover:bg-blue-500/5 transition-all"
               >
-                <Sparkles className="h-3 w-3 shrink-0" />
-                Ressources IA — Générer fiche élève + corrigé prof
+                <Sparkles className="h-3 w-3 shrink-0 text-blue-400" />
+                <span className="text-blue-400/80 font-medium">Ressources IA</span>
+                {suggestions.length > 0 && (
+                  <div className="flex gap-1 flex-wrap">
+                    {suggestions.map(t => {
+                      const cfg = RESOURCE_TYPE_CONFIG[t]
+                      return cfg ? (
+                        <span key={t} className={cn('text-[10px] px-1.5 py-0.5 rounded border font-medium', cfg.chip)}>
+                          {cfg.label}
+                        </span>
+                      ) : null
+                    })}
+                  </div>
+                )}
+                <span className="ml-auto text-blue-500/60 text-[10px] shrink-0">Générer →</span>
               </button>
             </div>
           )

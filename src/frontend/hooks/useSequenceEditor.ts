@@ -1,5 +1,5 @@
 import { useReducer, useCallback, useMemo } from 'react'
-import type { Sequence, Seance, Activite, Ressource } from '@/shared/schemas'
+import type { Sequence, Seance, Activite } from '@/shared/schemas'
 
 // === Types ===
 
@@ -25,10 +25,6 @@ export type EditorAction =
   | { type: 'ADD_LIST_ITEM'; path: SequencePath; value: string }
   | { type: 'REMOVE_LIST_ITEM'; path: SequencePath; itemIndex: number }
   | { type: 'UPDATE_LIST_ITEM'; path: SequencePath; itemIndex: number; value: string }
-  | { type: 'ADD_RESSOURCE'; seanceIndex: number; activiteIndex?: number; ressource: Ressource }
-  | { type: 'REMOVE_RESSOURCE'; seanceIndex: number; activiteIndex?: number; ressourceId: string }
-  | { type: 'UPDATE_RESSOURCE_STATUS'; seanceIndex: number; activiteIndex?: number; ressourceId: string; status: 'empty' | 'generating' | 'ready' | 'error' }
-  | { type: 'UPDATE_RESSOURCE_CONTENT'; seanceIndex: number; activiteIndex?: number; ressourceId: string; contenu: string; formatExercice?: any }
   | { type: 'UNDO' }
   | { type: 'REDO' }
 
@@ -226,117 +222,6 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       break
     }
 
-    case 'ADD_RESSOURCE': {
-      next = {
-        ...current,
-        seances: current.seances.map((s, si) => {
-          if (si !== action.seanceIndex) return s
-          if (action.activiteIndex === undefined) {
-            return { ...s, ressources: [...(s.ressources || []), action.ressource] }
-          }
-          return {
-            ...s,
-            activites: s.activites.map((a, ai) => {
-              if (ai !== action.activiteIndex) return a
-              return { ...a, ressources: [...(a.ressources || []), action.ressource] }
-            }),
-          }
-        }),
-      }
-      break
-    }
-
-    case 'REMOVE_RESSOURCE': {
-      next = {
-        ...current,
-        seances: current.seances.map((s, si) => {
-          if (si !== action.seanceIndex) return s
-          if (action.activiteIndex === undefined) {
-            return { ...s, ressources: (s.ressources || []).filter((r) => r.id !== action.ressourceId) }
-          }
-          return {
-            ...s,
-            activites: s.activites.map((a, ai) => {
-              if (ai !== action.activiteIndex) return a
-              return { ...a, ressources: (a.ressources || []).filter((r) => r.id !== action.ressourceId) }
-            }),
-          }
-        }),
-      }
-      break
-    }
-
-    case 'UPDATE_RESSOURCE_STATUS': {
-      next = {
-        ...current,
-        seances: current.seances.map((s, si) => {
-          if (si !== action.seanceIndex) return s
-          
-          if (action.activiteIndex === undefined) {
-            return {
-              ...s,
-              ressources: (s.ressources || []).map((r) =>
-                r.id === action.ressourceId ? { ...r, status: action.status } : r
-              )
-            }
-          } else {
-            return {
-              ...s,
-              activites: s.activites.map((a, ai) => {
-                if (ai !== action.activiteIndex) return a
-                return {
-                  ...a,
-                  ressources: (a.ressources || []).map((r) =>
-                    r.id === action.ressourceId ? { ...r, status: action.status } : r
-                  )
-                }
-              })
-            }
-          }
-        })
-      }
-      break
-    }
-
-    case 'UPDATE_RESSOURCE_CONTENT': {
-      next = {
-        ...current,
-        seances: current.seances.map((s, si) => {
-          if (si !== action.seanceIndex) return s
-          
-          if (action.activiteIndex === undefined) {
-            return {
-              ...s,
-              ressources: (s.ressources || []).map((r) =>
-                r.id === action.ressourceId ? { ...r, contenu: action.contenu, status: 'ready' as const } : r
-              )
-            }
-          } else {
-            return {
-              ...s,
-              activites: s.activites.map((a, ai) => {
-                if (ai !== action.activiteIndex) return a
-                return {
-                  ...a,
-                  ressources: (a.ressources || []).map((r) =>
-                    r.id === action.ressourceId
-                      ? {
-                          ...r,
-                          contenu: action.contenu,
-                          status: 'ready' as const,
-                          format_exercice: action.formatExercice !== undefined ? action.formatExercice : r.format_exercice
-                        }
-                      : r
-                  )
-                }
-              })
-            }
-          }
-        })
-      }
-      break
-    }
-
     default:
       return state
   }
@@ -421,22 +306,6 @@ export function useSequenceEditor() {
     dispatch({ type: 'UPDATE_LIST_ITEM', path, itemIndex, value })
   }, [])
 
-  const addRessource = useCallback((seanceIndex: number, activiteIndex: number | undefined, ressource: Ressource) => {
-    dispatch({ type: 'ADD_RESSOURCE', seanceIndex, activiteIndex, ressource })
-  }, [])
-
-  const removeRessource = useCallback((seanceIndex: number, activiteIndex: number | undefined, ressourceId: string) => {
-    dispatch({ type: 'REMOVE_RESSOURCE', seanceIndex, activiteIndex, ressourceId })
-  }, [])
-
-  const updateRessourceStatus = useCallback((seanceIndex: number, activiteIndex: number | undefined, ressourceId: string, status: 'empty' | 'generating' | 'ready' | 'error') => {
-    dispatch({ type: 'UPDATE_RESSOURCE_STATUS', seanceIndex, activiteIndex, ressourceId, status })
-  }, [])
-
-  const updateRessourceContent = useCallback((seanceIndex: number, activiteIndex: number | undefined, ressourceId: string, contenu: string, formatExercice?: any) => {
-    dispatch({ type: 'UPDATE_RESSOURCE_CONTENT', seanceIndex, activiteIndex, ressourceId, contenu, formatExercice })
-  }, [])
-
   const undo = useCallback(() => dispatch({ type: 'UNDO' }), [])
   const redo = useCallback(() => dispatch({ type: 'REDO' }), [])
 
@@ -461,11 +330,7 @@ export function useSequenceEditor() {
     addListItem,
     removeListItem,
     updateListItem,
-    addRessource,
-    removeRessource,
-    updateRessourceStatus,
-    updateRessourceContent,
     undo,
     redo,
-  }), [state, canUndo, canRedo, setSequence, updateField, addSeance, removeSeance, moveSeance, addActivite, removeActivite, moveActivite, replaceSeance, replaceActivite, addListItem, removeListItem, updateListItem, addRessource, removeRessource, updateRessourceStatus, updateRessourceContent, undo, redo])
+  }), [state, canUndo, canRedo, setSequence, updateField, addSeance, removeSeance, moveSeance, addActivite, removeActivite, moveActivite, replaceSeance, replaceActivite, addListItem, removeListItem, updateListItem, undo, redo])
 }
