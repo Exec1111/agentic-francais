@@ -29,6 +29,15 @@ import type { ResourceGenerationContext, ActiviteType } from '@/backend/resource
  *   ressourceType:   RessourceType
  *   ressourceTitre:  string
  *
+ *   // Contexte pédagogique enrichi (optionnel — améliore l'ancrage des prompts)
+ *   sequenceProblematique?: string
+ *   sequenceObjectifs?:     string[]
+ *   sequenceCompetences?:   string[]
+ *   seanceObjectifs?:       string[]
+ *   activiteDuree?:         number    — minutes
+ *   progression?:           { numero: number; titre: string }[]
+ *   autresActivites?:       { titre: string; type: string; duree?: number }[]
+ *
  *   // Corpus optionnel
  *   corpus_ref?:     string   — ID d'un texte dans la table corpus
  *
@@ -64,6 +73,14 @@ export async function POST(request: NextRequest) {
       ressourceTitre,
       corpus_ref,
       provider,
+      // Contexte pédagogique enrichi (optionnel)
+      sequenceProblematique,
+      sequenceObjectifs,
+      sequenceCompetences,
+      seanceObjectifs,
+      activiteDuree,
+      progression,
+      autresActivites,
     } = body
 
     // Validation minimale
@@ -106,6 +123,14 @@ export async function POST(request: NextRequest) {
       activiteConsigne: activiteConsigne || '',
       ressourceTitre,
       corpusItem,
+      // Contexte enrichi — transmis tel quel s'il est présent et bien formé
+      sequenceProblematique: typeof sequenceProblematique === 'string' ? sequenceProblematique : undefined,
+      sequenceObjectifs: Array.isArray(sequenceObjectifs) ? sequenceObjectifs : undefined,
+      sequenceCompetences: Array.isArray(sequenceCompetences) ? sequenceCompetences : undefined,
+      seanceObjectifs: Array.isArray(seanceObjectifs) ? seanceObjectifs : undefined,
+      activiteDuree: typeof activiteDuree === 'number' ? activiteDuree : undefined,
+      progression: Array.isArray(progression) ? progression : undefined,
+      autresActivites: Array.isArray(autresActivites) ? autresActivites : undefined,
     }
 
     // Génération (un seul appel LLM → deux versions)

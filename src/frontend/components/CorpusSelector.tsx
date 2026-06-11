@@ -2,13 +2,18 @@
 
 import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BookOpen, AlertTriangle, Plus, ChevronRight, ChevronDown, Sparkles, Search, Library } from 'lucide-react'
+import { BookOpen, AlertTriangle, Plus, ChevronRight, ChevronDown, Sparkles, Search, Library, Wand2, Loader2, Eye, EyeOff, Pencil, Check, X } from 'lucide-react'
 import { cn } from '@/shared/utils'
+import { CorpusViewer } from './CorpusViewer'
 import type { CorpusSuggestResponse } from '@/app/api/corpus/suggest/route'
+import type { CorpusGenerateResponse } from '@/app/api/corpus/generate/route'
 import type { CorpusItem } from '@/shared/schemas'
 
 interface CorpusSelectorProps {
   response: CorpusSuggestResponse
+  /** Demande complète de l'enseignant — contexte pour la génération de texte original */
+  demande: string
+  provider: 'ollama' | 'openai'
   onConfirm: (selectedRefs: string[]) => void
   onSkip: () => void
   isLoading?: boolean
@@ -34,59 +39,260 @@ function CorpusItemCard({
   selected,
   niveauxRecherches,
   onToggle,
+  onView,
 }: {
   item: Omit<CorpusItem, 'contenu'>
   selected: boolean
   niveauxRecherches: string[]
   onToggle: () => void
+  onView: (id: string) => void
 }) {
   const mismatch = hasNiveauMismatch(item.niveaux, niveauxRecherches)
   return (
-    <button
-      onClick={onToggle}
+    <div
       className={cn(
-        'w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-all',
+        'w-full flex items-center gap-3 p-3 rounded-lg border transition-all',
         selected
           ? 'bg-emerald-950/40 border-emerald-700/50 text-emerald-300'
           : 'bg-gray-900/40 border-gray-800 text-gray-400 hover:border-gray-700',
       )}
     >
-      {/* Checkbox */}
-      <div className={cn(
-        'h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors',
-        selected ? 'border-emerald-500 bg-emerald-500' : 'border-gray-600',
-      )}>
-        {selected && (
-          <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-          </svg>
-        )}
-      </div>
+      <button onClick={onToggle} className="flex items-center gap-3 flex-1 min-w-0 text-left">
+        {/* Checkbox */}
+        <div className={cn(
+          'h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors',
+          selected ? 'border-emerald-500 bg-emerald-500' : 'border-gray-600',
+        )}>
+          {selected && (
+            <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </div>
 
-      {/* Infos */}
-      <div className="flex-1 min-w-0">
-        <span className="font-medium text-sm block truncate">
-          {item.auteur}, <em>« {item.oeuvre} »</em>
-        </span>
-        <span className="text-xs opacity-60 block truncate">
-          {item.titre} · {item.genres.join(', ')}
-          {item.pages && ` · ${item.pages}`}
-        </span>
-        {mismatch && (
-          <span className="inline-flex items-center gap-1 mt-1.5 text-xs px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-400 border border-amber-700/40">
-            <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
-            Prévu pour {formatNiveaux(item.niveaux)} — à adapter
+        {/* Infos */}
+        <div className="flex-1 min-w-0">
+          <span className="font-medium text-sm block truncate">
+            {item.auteur}, <em>« {item.oeuvre} »</em>
           </span>
+          <span className="text-xs opacity-60 block truncate">
+            {item.titre} · {item.genres.join(', ')}
+            {item.pages && ` · ${item.pages}`}
+          </span>
+          {mismatch && (
+            <span className="inline-flex items-center gap-1 mt-1.5 text-xs px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-400 border border-amber-700/40">
+              <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+              Prévu pour {formatNiveaux(item.niveaux)} — à adapter
+            </span>
+          )}
+        </div>
+      </button>
+
+      <button
+        onClick={() => onView(item.id)}
+        className="shrink-0 p-1 rounded text-gray-500 hover:text-emerald-400 transition-colors"
+        title="Lire le texte"
+      >
+        <Eye className="h-4 w-4" />
+      </button>
+    </div>
+  )
+}
+
+// Carte d'un texte original généré par l'IA (sélectionnable + aperçu dépliable + édition)
+function GeneratedTextCard({
+  item,
+  notice,
+  selected,
+  onToggle,
+  onUpdate,
+}: {
+  item: CorpusItem
+  notice: string
+  selected: boolean
+  onToggle: () => void
+  onUpdate: (item: CorpusItem) => void
+}) {
+  const [showPreview, setShowPreview] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draftTitre, setDraftTitre] = useState(item.titre)
+  const [draftTexte, setDraftTexte] = useState(item.contenu)
+  const [saving, setSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+  const wordCount = item.contenu.trim().split(/\s+/).filter(Boolean).length
+
+  const startEdit = () => {
+    setDraftTitre(item.titre)
+    setDraftTexte(item.contenu)
+    setEditError(null)
+    setEditing(true)
+    setShowPreview(false)
+  }
+
+  const cancelEdit = () => {
+    if (saving) return
+    setEditing(false)
+    setEditError(null)
+  }
+
+  const saveEdit = async () => {
+    if (saving || !draftTitre.trim() || !draftTexte.trim()) return
+    setSaving(true)
+    setEditError(null)
+    try {
+      const res = await fetch(`/api/corpus/${item.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ titre: draftTitre, texte: draftTexte }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? `Erreur HTTP ${res.status}`)
+      onUpdate(data.item as CorpusItem)
+      setEditing(false)
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "L'enregistrement a échoué")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      className={cn(
+        'rounded-lg border transition-all',
+        selected
+          ? 'bg-purple-950/30 border-purple-700/50'
+          : 'bg-gray-900/40 border-gray-800 hover:border-gray-700',
+      )}
+    >
+      <div className="flex items-start gap-3 p-3">
+        <button
+          onClick={onToggle}
+          disabled={editing}
+          className={cn(
+            'h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors mt-0.5',
+            selected ? 'border-purple-500 bg-purple-500' : 'border-gray-600',
+            editing && 'opacity-40',
+          )}
+        >
+          {selected && (
+            <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </button>
+
+        {editing ? (
+          <input
+            type="text"
+            value={draftTitre}
+            onChange={(e) => setDraftTitre(e.target.value)}
+            disabled={saving}
+            placeholder="Titre du texte"
+            className="flex-1 min-w-0 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-purple-500/60"
+          />
+        ) : (
+          <button onClick={onToggle} className="flex-1 min-w-0 text-left">
+            <span className={cn('font-medium text-sm block', selected ? 'text-purple-300' : 'text-gray-400')}>
+              <em>« {item.titre} »</em>
+            </span>
+            <span className="text-xs opacity-60 block mt-0.5 text-gray-400">
+              {item.genres.join(', ')} · {item.themes.join(', ')} · ~{wordCount} mots
+              {item.verified_by === 'professeur' && ' · relu'}
+            </span>
+            {notice && (
+              <span className="text-xs opacity-50 block mt-0.5 italic text-gray-400">{notice}</span>
+            )}
+          </button>
         )}
+
+        <div className="flex items-center gap-1 shrink-0">
+          {editing ? (
+            <>
+              <button
+                onClick={saveEdit}
+                disabled={saving || !draftTitre.trim() || !draftTexte.trim()}
+                className="p-1 rounded text-emerald-500 hover:text-emerald-400 disabled:opacity-40 transition-colors"
+                title="Enregistrer les modifications"
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              </button>
+              <button
+                onClick={cancelEdit}
+                disabled={saving}
+                className="p-1 rounded text-gray-500 hover:text-red-400 disabled:opacity-40 transition-colors"
+                title="Annuler"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={startEdit}
+                className="p-1 rounded text-gray-500 hover:text-purple-400 transition-colors"
+                title="Modifier le texte"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setShowPreview((v) => !v)}
+                className="p-1 rounded text-gray-500 hover:text-purple-400 transition-colors"
+                title={showPreview ? "Masquer le texte" : "Lire le texte"}
+              >
+                {showPreview ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
-      <BookOpen className="h-4 w-4 shrink-0 opacity-50" />
-    </button>
+      {/* Zone d'édition du texte */}
+      {editing && (
+        <div className="mx-3 mb-3 space-y-2">
+          <textarea
+            value={draftTexte}
+            onChange={(e) => setDraftTexte(e.target.value)}
+            disabled={saving}
+            rows={12}
+            className="w-full bg-gray-950/60 border border-gray-700 rounded-md px-3 py-2 text-xs text-gray-200 leading-relaxed placeholder-gray-600 focus:outline-none focus:border-purple-500/60 resize-y scrollbar-thin"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') cancelEdit()
+              if (e.key === 'Enter' && e.ctrlKey) saveEdit()
+            }}
+          />
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-600">
+              ~{draftTexte.trim().split(/\s+/).filter(Boolean).length} mots · Ctrl+Enter pour enregistrer · Échap pour annuler
+            </p>
+            {editError && <p className="text-xs text-red-400">❌ {editError}</p>}
+          </div>
+        </div>
+      )}
+
+      <AnimatePresence>
+        {showPreview && !editing && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="mx-3 mb-3 px-3 py-2 rounded-md bg-gray-950/60 border border-gray-800 max-h-56 overflow-y-auto scrollbar-thin">
+              <p className="text-xs text-gray-300 whitespace-pre-wrap leading-relaxed">{item.contenu}</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   )
 }
 
 export function CorpusSelector({
   response,
+  demande,
+  provider,
   onConfirm,
   onSkip,
   isLoading = false,
@@ -94,6 +300,51 @@ export function CorpusSelector({
   const [selected, setSelected] = useState<Set<string>>(
     new Set(response.corpus_found.map((item) => item.id)),
   )
+
+  // === Textes originaux générés par l'IA ===
+  const [generated, setGenerated] = useState<{ item: CorpusItem; notice: string }[]>([])
+  const [genLoading, setGenLoading] = useState(false)
+  const [genError, setGenError] = useState<string | null>(null)
+  // Instructions du professeur pour guider l'écriture du prochain texte
+  const [genInstructions, setGenInstructions] = useState('')
+
+  // Texte affiché dans le panneau de lecture (null = fermé)
+  const [viewCorpusId, setViewCorpusId] = useState<string | null>(null)
+
+  const handleGenerateText = async () => {
+    if (genLoading) return
+    setGenLoading(true)
+    setGenError(null)
+    try {
+      const res = await fetch('/api/corpus/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          demande,
+          niveau: response.niveau,
+          theme: response.theme,
+          provider,
+          consignes: genInstructions,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? `Erreur HTTP ${res.status}`)
+      const { item, notice_pedagogique } = data as CorpusGenerateResponse
+      setGenerated((prev) => [...prev, { item, notice: notice_pedagogique }])
+      // Le texte généré est pré-sélectionné comme support de la séquence
+      setSelected((prev) => new Set(prev).add(item.id))
+    } catch (err) {
+      setGenError(err instanceof Error ? err.message : 'La génération du texte a échoué')
+    } finally {
+      setGenLoading(false)
+    }
+  }
+
+  const handleUpdateGenerated = (updated: CorpusItem) => {
+    setGenerated((prev) =>
+      prev.map((g) => (g.item.id === updated.id ? { ...g, item: updated } : g)),
+    )
+  }
 
   // === Browser état ===
   const [browserOpen, setBrowserOpen] = useState(false)
@@ -130,9 +381,12 @@ export function CorpusSelector({
   }
 
   const filteredBrowserItems = useMemo(() => {
+    // Exclure les textes générés dans cette session (affichés dans leur propre section)
+    const generatedIds = new Set(generated.map((g) => g.item.id))
+    const items = (browserItems ?? []).filter((i) => !generatedIds.has(i.id))
     const q = browserSearch.toLowerCase().trim()
-    if (!q) return browserItems ?? []
-    return (browserItems ?? []).filter(
+    if (!q) return items
+    return items.filter(
       (item) =>
         item.auteur.toLowerCase().includes(q) ||
         item.oeuvre.toLowerCase().includes(q) ||
@@ -140,7 +394,7 @@ export function CorpusSelector({
         item.themes.some((t) => t.toLowerCase().includes(q)) ||
         item.genres.some((g) => g.toLowerCase().includes(q)),
     )
-  }, [browserItems, browserSearch])
+  }, [browserItems, browserSearch, generated])
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -194,6 +448,7 @@ export function CorpusSelector({
               selected={selected.has(item.id)}
               niveauxRecherches={response.niveaux_recherches}
               onToggle={() => toggle(item.id)}
+              onView={setViewCorpusId}
             />
           ))}
         </div>
@@ -255,6 +510,7 @@ export function CorpusSelector({
                         selected={selected.has(item.id)}
                         niveauxRecherches={response.niveaux_recherches}
                         onToggle={() => toggle(item.id)}
+                        onView={setViewCorpusId}
                       />
                     ))}
                   </div>
@@ -293,6 +549,72 @@ export function CorpusSelector({
         </div>
       )}
 
+      {/* Texte original généré par l'IA */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+          <Wand2 className="h-3 w-3 text-purple-400" />
+          Texte original écrit par l'IA
+        </p>
+
+        {generated.map(({ item, notice }) => (
+          <GeneratedTextCard
+            key={item.id}
+            item={item}
+            notice={notice}
+            selected={selected.has(item.id)}
+            onToggle={() => toggle(item.id)}
+            onUpdate={handleUpdateGenerated}
+          />
+        ))}
+
+        {genError && (
+          <p className="text-xs text-red-400">❌ {genError}</p>
+        )}
+
+        {/* Instructions du professeur pour guider l'écriture */}
+        <textarea
+          value={genInstructions}
+          onChange={(e) => setGenInstructions(e.target.value)}
+          disabled={genLoading}
+          rows={2}
+          placeholder="Guidez l'écriture (optionnel) : genre, longueur, personnages, registre, points de langue à faire apparaître…"
+          className="w-full bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-purple-500/50 resize-none disabled:opacity-50"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && e.ctrlKey) handleGenerateText()
+          }}
+        />
+
+        <button
+          onClick={handleGenerateText}
+          disabled={genLoading}
+          className={cn(
+            'w-full flex items-center justify-center gap-2 p-3 rounded-lg border border-dashed text-sm transition-all',
+            genLoading
+              ? 'border-purple-800/50 bg-purple-950/20 text-purple-400 cursor-wait'
+              : 'border-purple-900/50 text-purple-400/80 hover:border-purple-700/60 hover:bg-purple-950/20 hover:text-purple-300',
+          )}
+        >
+          {genLoading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Écriture du texte en cours…
+            </>
+          ) : (
+            <>
+              <Wand2 className="h-4 w-4" />
+              {generated.length > 0
+                ? 'Écrire et ajouter un autre texte'
+                : 'Écrire un texte original pour cette séquence'}
+            </>
+          )}
+        </button>
+        <p className="text-xs text-gray-600 pl-1">
+          L'IA rédige un texte inédit adapté au niveau, au thème et à vos instructions. Chaque texte
+          s'ajoute à la liste ci-dessus et à votre corpus
+          (<code className="text-gray-500">data/corpus/</code>) — sélectionnez ceux à utiliser comme supports.
+        </p>
+      </div>
+
       {/* Actions */}
       <div className="flex items-center justify-between pt-1 border-t border-gray-800">
         <span className="text-xs text-gray-600">
@@ -314,6 +636,9 @@ export function CorpusSelector({
           {selected.size > 0 ? 'Générer avec ces textes' : 'Générer sans corpus'}
         </button>
       </div>
+
+      {/* Panneau de lecture d'un texte du corpus (au-dessus de la modale) */}
+      <CorpusViewer corpusId={viewCorpusId} onClose={() => setViewCorpusId(null)} />
     </motion.div>
   )
 }

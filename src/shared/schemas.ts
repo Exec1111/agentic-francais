@@ -2,6 +2,9 @@ import { z } from 'zod'
 
 // === Schémas du Corpus littéraire ===
 
+/** Auteur conventionnel des textes originaux générés par l'IA (voir backend/corpus-writer.ts) */
+export const IA_AUTEUR = 'Atelier (texte original IA)'
+
 export const CorpusItemSchema = z.object({
   id: z.string(),
   type: z.enum(['extrait', 'oeuvre_complete']),
@@ -44,6 +47,17 @@ export const CorpusSuggestionSchema = z.object({
   mots_approximatifs: z.number().nullable(),
 })
 
+// Schéma de sortie du générateur de texte original
+// (3e source de support : texte inédit écrit par l'IA pour la séquence)
+export const GeneratedTextSchema = z.object({
+  titre: z.string(),
+  genre: z.string(),
+  texte: z.string(),
+  themes: z.array(z.string()).min(1),
+  niveau_difficulte: z.enum(['accessible', 'standard', 'exigeant']),
+  notice_pedagogique: z.string(),
+})
+
 // Schéma de sortie du LLM-juge de pertinence corpus
 export const CorpusRankingItemSchema = z.object({
   id: z.string(),
@@ -58,6 +72,7 @@ export const CorpusRankingSchema = z.object({
 export type CorpusItem = z.infer<typeof CorpusItemSchema>
 export type CorpusQuery = z.infer<typeof CorpusQuerySchema>
 export type CorpusSuggestion = z.infer<typeof CorpusSuggestionSchema>
+export type GeneratedText = z.infer<typeof GeneratedTextSchema>
 export type CorpusRankingItem = z.infer<typeof CorpusRankingItemSchema>
 
 // === Schémas des artefacts pédagogiques ===

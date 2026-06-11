@@ -6,6 +6,7 @@
  *   2. Construit les messages LLM via buildPrompt()
  *   3. Appelle le LLM avec structured outputs (schéma Zod → JSON Schema)
  *   4. Valide la réponse avec validateLLMOutput (avec retry)
+ *   4b. Applique postProcess() si défini (injection par code du texte corpus exact)
  *   5. Dérive les deux versions (prof + élève) depuis le JSON complet
  *   6. Rend le Markdown pour chaque version
  *   7. Retourne une RessourcePaire prête à sauvegarder
@@ -50,7 +51,7 @@ export async function generateResourcePair(opts: GenerateResourceOptions): Promi
   })
 
   // 4. Validation avec retry automatique
-  const fullContent = await validateLLMOutput({
+  const validated = await validateLLMOutput({
     schema: definition.schema,
     raw: rawResponse.content,
     context: `ressource_${type}`,
@@ -59,6 +60,12 @@ export async function generateResourcePair(opts: GenerateResourceOptions): Promi
     options: { temperature: 0.7, schema: definition.schema, schemaName: `ressource_${type}` },
     maxRetries: 1,
   })
+
+  // 4b. Post-traitement : injection par code des données de référence
+  // (ex : texte corpus exact — jamais recopié par le LLM)
+  const fullContent = definition.postProcess
+    ? definition.postProcess(validated, context)
+    : validated
 
   // 5 & 6. Générer les deux versions
   const profId = newId()

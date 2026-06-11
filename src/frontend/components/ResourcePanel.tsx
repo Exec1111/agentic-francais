@@ -53,6 +53,15 @@ export interface ResourcePanelContext {
   /** Si true, le panel s'ouvre sans sélectionner la première ressource existante
    *  → les chips de suggestions sont au premier plan pour générer un nouveau type. */
   startInGenerateMode?: boolean
+
+  // ── Contexte pédagogique enrichi (rempli par SequenceEditor.openResourcePanel) ──
+  sequenceProblematique?: string
+  sequenceObjectifs?: string[]
+  sequenceCompetences?: string[]
+  seanceObjectifs?: string[]
+  activiteDuree?: number
+  progression?: { numero: number; titre: string }[]
+  autresActivites?: { titre: string; type: string; duree?: number }[]
 }
 
 interface ResourcePanelProps {
@@ -303,6 +312,14 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
           ressourceTitre:   DEFAULT_TITLES[type] || type,
           corpus_ref:       context.corpusRef,
           provider,
+          // Contexte pédagogique enrichi
+          sequenceProblematique: context.sequenceProblematique,
+          sequenceObjectifs:     context.sequenceObjectifs,
+          sequenceCompetences:   context.sequenceCompetences,
+          seanceObjectifs:       context.seanceObjectifs,
+          activiteDuree:         context.activiteDuree,
+          progression:           context.progression,
+          autresActivites:       context.autresActivites,
         }),
       })
 

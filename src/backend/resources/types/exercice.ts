@@ -3,6 +3,7 @@ import {
   ExerciceContenuSchema,
   type ExerciceContenu,
 } from '@/shared/resource-schemas'
+import { buildContextePedagogique } from '../prompt-context'
 
 export const exerciceDefinition: ResourceTypeDefinition<ExerciceContenu> = {
   type: 'exercice',
@@ -73,11 +74,7 @@ Pour chaque item, tu fournis :
 - justification : explication pédagogique de la règle ou du raisonnement (pour le professeur)
 ${corpusBlock}
 
-Contexte pédagogique :
-- Séquence : "${ctx.sequenceTitle}" | Niveau : ${ctx.niveau} | Thème : ${ctx.theme}
-- Séance n°${ctx.seanceNumero} : "${ctx.seanceTitle}"
-- Activité : "${ctx.activiteTitre}" (type : ${ctx.activiteType})
-- Objectif : ${ctx.activiteConsigne}`,
+${buildContextePedagogique(ctx)}`,
       },
       {
         role: 'user',

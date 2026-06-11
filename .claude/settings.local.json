@@ -12,7 +12,17 @@
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\julie\\\\CascadeProjects\\\\windsurf-project\\\\agentic-francais\" -Directory)",
       "Bash(Select-Object Name)",
       "Bash(dir \"src\\\\app\\\\api\\\\resources\\\\[id]\")",
-      "Bash(findstr /n \"updateRessourceMarkdown\" src\\\\backend\\\\repositories\\\\resource-repo.ts)"
+      "Bash(findstr /n \"updateRessourceMarkdown\" src\\\\backend\\\\repositories\\\\resource-repo.ts)",
+      "PowerShell($p = 'C:\\\\Users\\\\julie\\\\CascadeProjects\\\\windsurf-project\\\\agentic-francais\\\\src\\\\app\\\\api\\\\corpus\\\\generate\\\\route.ts'; $c = Get-Content $p -Raw; $c = $c -replace '\\\\.replace\\\\\\(/\\\\[.{1,8}?\\\\]/g, ''''\\\\\\)', '.replace\\(/[̀-ͯ]/g, ''''\\)'; Set-Content $p $c -NoNewline -Encoding utf8; Select-String -Path $p -Pattern 'normalize|u0300' | ForEach-Object Line)",
+      "PowerShell(try { \\(Invoke-WebRequest -Uri 'http://localhost:11434/api/tags' -TimeoutSec 3 -UseBasicParsing\\).Content.Substring\\(0, 300\\) } catch { \"ollama indisponible: $\\($_.Exception.Message\\)\" }; Test-Path 'C:\\\\Users\\\\julie\\\\CascadeProjects\\\\windsurf-project\\\\agentic-francais\\\\.env.local')",
+      "PowerShell(npm run dev)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 10; \"tsc exit=$LASTEXITCODE\"; npx vitest run src/backend/__tests__/corpus-writer.test.ts 2>&1 | Select-Object -Last 5)",
+      "PowerShell($body = '{\"titre\":\"Tentative\",\"texte\":\"x\"}'; try { Invoke-WebRequest -Uri 'http://localhost:3000/api/corpus/maupassant-parure-extrait' -Method PATCH -ContentType 'application/json' -Body $body -TimeoutSec 30 -UseBasicParsing } catch { \"status: $\\($_.Exception.Response.StatusCode.value__\\)\"; $sr = New-Object IO.StreamReader\\($_.Exception.Response.GetResponseStream\\(\\)\\); $sr.ReadToEnd\\(\\) })",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(curl -s -o /dev/null -w \"\" http://localhost:58203/api/logs)",
+      "Bash(curl -s http://localhost:58203/api/logs)",
+      "Bash(curl -s \"http://localhost:54251/api/corpus\" -o /dev/null)",
+      "Bash(npx eslint *)"
     ]
   }
 }

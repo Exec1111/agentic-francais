@@ -17,7 +17,7 @@ function sha256(content: string): string {
   return crypto.createHash('sha256').update(content, 'utf8').digest('hex')
 }
 
-function parseFrontmatter(fileContent: string): { meta: Record<string, unknown>; body: string } {
+export function parseFrontmatter(fileContent: string): { meta: Record<string, unknown>; body: string } {
   const fmMatch = fileContent.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/)
   if (!fmMatch) return { meta: {}, body: fileContent.trim() }
 

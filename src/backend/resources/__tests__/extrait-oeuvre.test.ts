@@ -1,16 +1,19 @@
 /**
- * Tests unitaires — extraitOeuvreDefinition.buildPrompt
+ * Tests unitaires — extraitOeuvreDefinition (buildPrompt + postProcess)
  *
- * Trois familles de cas :
+ * Familles de cas :
  *   A. Aucun corpus → erreur explicite (comportement inchangé)
- *   B. Corpus avec contenu disponible → reproduction verbatim + consignes strictes
- *   C. Corpus protégé (contenu vide) → pas d'erreur, placeholder exact imposé
+ *   B. Corpus avec contenu disponible → le LLM produit l'appareil pédagogique,
+ *      le texte est injecté PAR CODE dans postProcess (champ texte = "")
+ *   C. Corpus protégé (contenu vide) → pas d'erreur, placeholder injecté par code
+ *   D. postProcess → fidélité du texte et des métadonnées garantie par code
  */
 
 import { describe, it, expect } from 'vitest'
 import { extraitOeuvreDefinition } from '../types/extrait-oeuvre'
 import type { ResourceGenerationContext } from '../registry'
 import type { CorpusItem } from '@/shared/schemas'
+import type { ExtraitOeuvreContenu } from '@/shared/resource-schemas'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -80,10 +83,16 @@ describe("extraitOeuvreDefinition.buildPrompt — cas B : corpus avec contenu di
     expect(extraitOeuvreDefinition.buildPrompt(makeContext(item))).toHaveLength(2)
   })
 
-  it('indique que le texte doit être reproduit MOT POUR MOT', () => {
+  it('exige des citations MOT POUR MOT et identifie le texte source officiel', () => {
     const system = systemMsg(extraitOeuvreDefinition.buildPrompt(makeContext(item)))
     expect(system).toContain('MOT POUR MOT')
     expect(system).toContain('TEXTE SOURCE OFFICIEL')
+  })
+
+  it('demande au LLM de laisser le champ "texte" vide (injection par code)', () => {
+    const system = systemMsg(extraitOeuvreDefinition.buildPrompt(makeContext(item)))
+    expect(system).toContain('chaîne vide')
+    expect(system).toContain('NE recopie PAS')
   })
 
   it('inclut le texte source intégral dans le prompt', () => {
@@ -96,12 +105,6 @@ describe("extraitOeuvreDefinition.buildPrompt — cas B : corpus avec contenu di
     expect(system).toContain('Albert Camus')
     expect(system).toContain("L'Étranger")
     expect(system).toContain('p. 9')
-  })
-
-  it('demande la numérotation des lignes tous les 5', () => {
-    const system = systemMsg(extraitOeuvreDefinition.buildPrompt(makeContext(item)))
-    expect(system).toContain('[5]')
-    expect(system).toContain('[10]')
   })
 
   it("ne contient pas de mention 'placeholder' ni 'à insérer'", () => {
@@ -208,5 +211,83 @@ describe('extraitOeuvreDefinition — comportement symétrique avec/sans contenu
     const system = systemMsg(extraitOeuvreDefinition.buildPrompt(makeContext(item)))
     // Le placeholder doit citer l'œuvre pour que l'enseignant sache quoi insérer
     expect(system).toContain("L'Étranger")
+  })
+})
+
+// ── Cas D : postProcess — injection du texte et des métadonnées par code ──────
+
+const makeFullContent = (overrides: Partial<ExtraitOeuvreContenu> = {}): ExtraitOeuvreContenu => ({
+  // Métadonnées volontairement fausses : postProcess doit les écraser
+  auteur: 'Auteur Halluciné',
+  oeuvre: 'Œuvre Inventée',
+  edition_reference: 'Édition Fantaisiste',
+  pages: 'p. 999',
+  introduction: 'Une introduction contextuelle.',
+  texte: '',
+  notes_bas_de_page: null,
+  questions: [
+    { enonce: 'Question 1 ?', reponse_attendue: 'Réponse 1', elements_analyse: null },
+    { enonce: 'Question 2 ?', reponse_attendue: 'Réponse 2', elements_analyse: 'Métaphore filée' },
+  ],
+  note_prof: null,
+  ...overrides,
+})
+
+describe('extraitOeuvreDefinition.postProcess — corpus avec contenu', () => {
+  const texteSixLignes = 'Ligne un\nLigne deux\nLigne trois\nLigne quatre\nLigne cinq\nLigne six'
+  const item = makeCorpusItem({ contenu: texteSixLignes })
+
+  it('injecte le texte du corpus dans le champ "texte" (jamais celui du LLM)', () => {
+    const result = extraitOeuvreDefinition.postProcess!(
+      makeFullContent({ texte: 'Texte halluciné par le LLM' }),
+      makeContext(item),
+    )
+    expect(result.texte).toContain('Ligne un')
+    expect(result.texte).not.toContain('halluciné')
+  })
+
+  it('numérote les lignes tous les 5 par code', () => {
+    const result = extraitOeuvreDefinition.postProcess!(makeFullContent(), makeContext(item))
+    expect(result.texte).toContain('[5] Ligne cinq')
+    expect(result.texte).not.toContain('[6]')
+  })
+
+  it('écrase les métadonnées bibliographiques avec celles de la base', () => {
+    const result = extraitOeuvreDefinition.postProcess!(makeFullContent(), makeContext(item))
+    expect(result.auteur).toBe('Albert Camus')
+    expect(result.oeuvre).toBe("L'Étranger")
+    expect(result.edition_reference).toBe('Gallimard, Folio n°2, 1972')
+    expect(result.pages).toBe('p. 9')
+  })
+
+  it("préserve l'appareil pédagogique produit par le LLM", () => {
+    const result = extraitOeuvreDefinition.postProcess!(makeFullContent(), makeContext(item))
+    expect(result.introduction).toBe('Une introduction contextuelle.')
+    expect(result.questions).toHaveLength(2)
+    expect(result.questions[1].elements_analyse).toBe('Métaphore filée')
+  })
+})
+
+describe('extraitOeuvreDefinition.postProcess — corpus protégé (contenu vide)', () => {
+  const protectedItem = makeCorpusItem({ contenu: '' })
+
+  it('injecte le placeholder standard à la place du texte', () => {
+    const result = extraitOeuvreDefinition.postProcess!(makeFullContent(), makeContext(protectedItem))
+    expect(result.texte).toBe("[Texte à insérer par l'enseignant — L'Étranger, Albert Camus, p. 9]")
+  })
+
+  it('fonctionne sans le champ pages', () => {
+    const sansPages = makeCorpusItem({ contenu: '', pages: undefined })
+    const result = extraitOeuvreDefinition.postProcess!(makeFullContent(), makeContext(sansPages))
+    expect(result.texte).toBe("[Texte à insérer par l'enseignant — L'Étranger, Albert Camus]")
+    expect(result.pages).toBeNull()
+  })
+})
+
+describe('extraitOeuvreDefinition.postProcess — sans corpus', () => {
+  it('retourne le contenu inchangé si aucun corpus (cas défensif)', () => {
+    const full = makeFullContent({ texte: 'Texte du LLM' })
+    const result = extraitOeuvreDefinition.postProcess!(full, makeContext(null))
+    expect(result).toEqual(full)
   })
 })

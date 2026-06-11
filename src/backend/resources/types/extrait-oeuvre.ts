@@ -3,6 +3,8 @@ import {
   ExtraitOeuvreContenuSchema,
   type ExtraitOeuvreContenu,
 } from '@/shared/resource-schemas'
+import { buildContextePedagogique } from '../prompt-context'
+import { numberTextLines, buildTexteProtegePlaceholder } from '../text-utils'
 
 export const extraitOeuvreDefinition: ResourceTypeDefinition<ExtraitOeuvreContenu> = {
   type: 'extrait_oeuvre',
@@ -30,6 +32,9 @@ export const extraitOeuvreDefinition: ResourceTypeDefinition<ExtraitOeuvreConten
   }),
 
   // ── Prompt de génération ───────────────────────────────────────────────────
+  // Le LLM produit UNIQUEMENT l'appareil pédagogique (introduction, lexique,
+  // questions). Le texte officiel et les métadonnées bibliographiques sont
+  // injectés par code dans postProcess() — fidélité garantie.
 
   buildPrompt: (ctx) => {
     if (!ctx.corpusItem) {
@@ -39,17 +44,17 @@ export const extraitOeuvreDefinition: ResourceTypeDefinition<ExtraitOeuvreConten
     }
 
     const hasContent = ctx.corpusItem.contenu !== ''
+    const contexte = buildContextePedagogique(ctx)
 
     if (hasContent) {
-      // ── Mode normal : texte disponible → reproduire mot pour mot ─────────────
+      // ── Mode normal : texte disponible → le LLM analyse, le code insère ─────
       return [
         {
           role: 'system',
           content: `Tu es un professeur de français agrégé spécialiste de la littérature.
-Tu reçois un texte littéraire OFFICIEL issu d'une base vérifiée.
-Tu dois produire une présentation pédagogique structurée en JSON.
+Tu produis l'appareil pédagogique (introduction, lexique, questions) autour d'un texte littéraire officiel, en JSON structuré.
 
-TEXTE SOURCE OFFICIEL — À REPRODUIRE MOT POUR MOT :
+TEXTE SOURCE OFFICIEL (fourni pour ton analyse — il sera inséré automatiquement par le système dans le document final) :
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Auteur     : ${ctx.corpusItem.auteur}
 Œuvre      : ${ctx.corpusItem.oeuvre}
@@ -59,28 +64,26 @@ ${ctx.corpusItem.contenu}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 RÈGLES ABSOLUES :
-1. Le champ "texte" doit reproduire le texte ci-dessus MOT POUR MOT, sans aucune modification.
-2. Numéroter les lignes/vers tous les 5 en insérant [5], [10], [15], etc. dans le texte.
-3. Les questions (champ "enonce") ne contiennent PAS les réponses.
-   → Les réponses vont dans "reponse_attendue" (pour le professeur).
-   → "elements_analyse" : relever les figures de style, procédés narratifs, champs lexicaux clés.
-4. "introduction" : 2-3 phrases de mise en contexte (auteur, œuvre, enjeux de cet extrait).
+1. Le champ "texte" doit contenir une chaîne vide "" — NE recopie PAS le texte : le système l'insère automatiquement, à l'identique, avec la numérotation des lignes.
+2. Les champs "auteur", "oeuvre", "edition_reference", "pages" : recopie exactement les métadonnées ci-dessus (elles seront de toute façon vérifiées par le système).
+3. Toute citation dans les questions, réponses ou analyses doit être extraite MOT POUR MOT du texte ci-dessus, entre guillemets.
+4. Les questions (champ "enonce") ne contiennent PAS les réponses.
+   → Les réponses vont dans "reponse_attendue" (pour le professeur), justifiées par des citations exactes.
+   → "elements_analyse" : figures de style, procédés narratifs, champs lexicaux précis relevés dans le texte.
+5. "introduction" : 2-3 phrases de mise en contexte (auteur, œuvre, contexte historique/littéraire, enjeux de cet extrait).
+6. "notes_bas_de_page" : 4-8 termes difficiles présents dans le texte, avec définition courte adaptée au niveau.
+7. La difficulté des questions doit progresser : compréhension → analyse → interprétation.
 
-Contexte pédagogique :
-- Séquence : "${ctx.sequenceTitle}" | Niveau : ${ctx.niveau} | Thème : ${ctx.theme}
-- Séance n°${ctx.seanceNumero} : "${ctx.seanceTitle}"
-- Activité : "${ctx.activiteTitre}" (type : ${ctx.activiteType})
-- Objectif : ${ctx.activiteConsigne}`,
+${contexte}`,
         },
         {
           role: 'user',
-          content: `Génère la présentation pédagogique "${ctx.ressourceTitre}" pour le texte de ${ctx.corpusItem.auteur} en respectant exactement le schéma JSON.`,
+          content: `Génère l'appareil pédagogique "${ctx.ressourceTitre}" pour le texte de ${ctx.corpusItem.auteur} en respectant exactement le schéma JSON (champ "texte" = chaîne vide).`,
         },
       ]
     }
 
-    // ── Mode protégé : contenu non disponible → fiche avec texte à insérer ────
-    const placeholder = `[Texte à insérer par l'enseignant — ${ctx.corpusItem.oeuvre}, ${ctx.corpusItem.auteur}${ctx.corpusItem.pages ? `, ${ctx.corpusItem.pages}` : ''}]`
+    // ── Mode protégé : contenu non disponible → fiche sans texte ──────────────
     return [
       {
         role: 'system',
@@ -96,8 +99,7 @@ Référence  : ${ctx.corpusItem.edition_reference}${ctx.corpusItem.pages ? ` —
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 RÈGLES ABSOLUES :
-1. Le champ "texte" doit contenir UNIQUEMENT ce placeholder exact (ne pas inventer de texte) :
-   "${placeholder}"
+1. Le champ "texte" doit contenir une chaîne vide "" — ne pas inventer de texte : le système insérera automatiquement un encart « Texte à insérer par l'enseignant ».
 2. "introduction" : 2-3 phrases de contextualisation (auteur, œuvre, enjeux du passage).
 3. Les questions ("enonce") doivent être formulées sans citer le texte mot pour mot.
    Pose des questions d'analyse, de compréhension, de style adaptées au thème et au niveau.
@@ -105,17 +107,34 @@ RÈGLES ABSOLUES :
 5. "note_prof" : rappelle que l'enseignant doit fournir le texte séparément.
 6. "notes_bas_de_page" peut rester vide (tableau vide []).
 
-Contexte pédagogique :
-- Séquence : "${ctx.sequenceTitle}" | Niveau : ${ctx.niveau} | Thème : ${ctx.theme}
-- Séance n°${ctx.seanceNumero} : "${ctx.seanceTitle}"
-- Activité : "${ctx.activiteTitre}" (type : ${ctx.activiteType})
-- Objectif : ${ctx.activiteConsigne}`,
+${contexte}`,
       },
       {
         role: 'user',
-        content: `Génère la fiche de lecture "${ctx.ressourceTitre}" pour l'œuvre protégée de ${ctx.corpusItem.auteur} en respectant exactement le schéma JSON (texte = placeholder uniquement).`,
+        content: `Génère la fiche de lecture "${ctx.ressourceTitre}" pour l'œuvre protégée de ${ctx.corpusItem.auteur} en respectant exactement le schéma JSON (champ "texte" = chaîne vide, le système insérera le placeholder).`,
       },
     ]
+  },
+
+  // ── Post-traitement : injection par code du texte et des métadonnées ────────
+  // Garantie de fidélité absolue : ni le texte ni la référence bibliographique
+  // ne dépendent de ce que le LLM a recopié.
+
+  postProcess: (full, ctx) => {
+    if (!ctx.corpusItem) return full
+
+    const texte = ctx.corpusItem.contenu
+      ? numberTextLines(ctx.corpusItem.contenu)
+      : buildTexteProtegePlaceholder(ctx.corpusItem)
+
+    return {
+      ...full,
+      auteur: ctx.corpusItem.auteur,
+      oeuvre: ctx.corpusItem.oeuvre,
+      edition_reference: ctx.corpusItem.edition_reference,
+      pages: ctx.corpusItem.pages ?? null,
+      texte,
+    }
   },
 
   // ── Renderers Markdown ─────────────────────────────────────────────────────

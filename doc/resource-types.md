@@ -1,7 +1,7 @@
 # Guide : Ajouter un Type de Ressource
 
 > Documentation technique pour l'ajout et la maintenance des types de ressources pédagogiques.  
-> **Dernière mise à jour** : 26 mai 2026
+> **Dernière mise à jour** : 11 juin 2026
 
 ---
 
@@ -96,6 +96,16 @@ interface ResourceTypeDefinition<T> {
    * Le prompt système générique est fourni par generator.ts.
    */
   buildPrompt: (context: ResourceGenerationContext) => string;
+
+  /**
+   * Post-traitement appliqué APRÈS validation de la sortie LLM, AVANT la
+   * dérivation des versions prof/élève. À utiliser pour injecter par code
+   * des données de référence plutôt que de les faire recopier par le LLM.
+   * Exemple : extrait_oeuvre injecte le texte corpus exact (numéroté par
+   * numberTextLines) et écrase les métadonnées bibliographiques — le LLM
+   * laisse le champ "texte" vide et ne produit que l'appareil pédagogique.
+   */
+  postProcess?: (full: T, context: ResourceGenerationContext) => T;
 
   /**
    * Renderers Markdown. 'professeur' est toujours requis.
@@ -299,6 +309,23 @@ Avant de considérer le type comme complet :
 | `fiche_lecture` | TWO_VERSIONS | `sections[].questions[].reponse_attendue` | `lecture`, `recherche` |
 | `carte_mentale` | TWO_VERSIONS | *(version élève = nœuds à compléter, version prof = complète)* | `cours`, `bilan` |
 | `dictee` | TEACHER_ONLY | *(document entier, pas de version élève)* | `exercice`, `evaluation` |
+
+---
+
+## Contexte pédagogique des prompts
+
+Chaque `buildPrompt` doit intégrer le bloc de contexte partagé via
+`buildContextePedagogique(ctx)` (`src/backend/resources/prompt-context.ts`). Ce bloc combine :
+
+- le contexte de la séquence (titre, problématique, objectifs, compétences) ;
+- la **progression** (toutes les séances, avec la séance actuelle marquée) ;
+- le contexte de la séance (objectifs) et de l'activité (type, durée, consigne, autres activités) ;
+- les **repères du programme officiel** pour le niveau (`src/backend/pedagogie/programmes.ts` :
+  entrées du programme, attendus de langue/écriture/lecture, calibrage de la difficulté — niveaux 6e à terminale).
+
+Les champs enrichis sont optionnels (`ResourceGenerationContext`) : ils sont remplis par
+`SequenceEditor.openResourcePanel` côté frontend et transmis via le body de
+`POST /api/generate/resource`. Le bloc se dégrade proprement s'ils sont absents.
 
 ---
 

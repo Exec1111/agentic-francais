@@ -171,6 +171,8 @@ export function GenerateModal({ isOpen, onClose, provider, onSwitchProvider, onG
                     >
                       <CorpusSelector
                         response={corpusSuggest}
+                        demande={demande}
+                        provider={provider}
                         onConfirm={(refs) => launch(refs)}
                         onSkip={() => launch([])}
                         isLoading={false}

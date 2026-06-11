@@ -38,6 +38,22 @@ export interface ResourceGenerationContext {
   activiteConsigne: string
   ressourceTitre: string
   corpusItem?: CorpusItem | null
+
+  // ── Contexte pédagogique enrichi (optionnel — transmis par le frontend) ────
+  /** Problématique de la séquence */
+  sequenceProblematique?: string
+  /** Objectifs généraux de la séquence */
+  sequenceObjectifs?: string[]
+  /** Compétences travaillées dans la séquence */
+  sequenceCompetences?: string[]
+  /** Objectifs de la séance en cours */
+  seanceObjectifs?: string[]
+  /** Durée de l'activité en minutes */
+  activiteDuree?: number
+  /** Progression complète : toutes les séances de la séquence dans l'ordre */
+  progression?: { numero: number; titre: string }[]
+  /** Autres activités de la même séance (pour éviter les doublons) */
+  autresActivites?: { titre: string; type: string; duree?: number }[]
 }
 
 // ── Interface à implémenter pour chaque type ───────────────────────────────────
@@ -70,6 +86,14 @@ export interface ResourceTypeDefinition<T extends Record<string, unknown>> {
    * Le système de génération injecte automatiquement le schéma JSON (structured outputs).
    */
   buildPrompt: (context: ResourceGenerationContext) => LLMMessage[]
+
+  /**
+   * Post-traitement appliqué APRÈS validation de la sortie LLM, AVANT la
+   * dérivation des versions prof/élève. Permet d'injecter par code des données
+   * de référence (ex : texte corpus exact) plutôt que de les faire recopier
+   * par le LLM — garantie de fidélité absolue.
+   */
+  postProcess?: (full: T, context: ResourceGenerationContext) => T
 
   /**
    * Renderers Markdown.

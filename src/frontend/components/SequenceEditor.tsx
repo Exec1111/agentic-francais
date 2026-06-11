@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   BookOpen, Target, Award, Clock, FileText, Plus, Trash2, X, Search,
   ChevronUp, ChevronDown, ChevronRight, Undo2, Redo2, AlertTriangle,
-  RefreshCw, Loader2, Sparkles, User, GraduationCap, Lock,
+  RefreshCw, Loader2, Sparkles, User, GraduationCap, Lock, Eye,
 } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import { EditableText } from './EditableText'
@@ -13,6 +13,7 @@ import { EditableList } from './EditableList'
 import { ResourceSection } from './ResourceSection'
 import { ResourceDrawer } from './ResourceDrawer'
 import { ResourcePanel } from './ResourcePanel'
+import { CorpusViewer } from './CorpusViewer'
 import type { ResourcePanelContext } from './ResourcePanel'
 import type { useSequenceEditor, SequencePath } from '@/frontend/hooks/useSequenceEditor'
 import type { Activite, Ressource, RessourceType, ExerciceFormat } from '@/shared/schemas'
@@ -87,11 +88,35 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
   const [refreshKey, setRefreshKey] = useState<Record<string, number>>({})
   const [objectifsOpen, setObjectifsOpen] = useState(false)
   const [competencesOpen, setCompetencesOpen] = useState(false)
+  // Texte du corpus affiché dans le panneau de lecture (null = fermé)
+  const [viewCorpusId, setViewCorpusId] = useState<string | null>(null)
 
+  // Enrichit le contexte minimal fourni par ActiviteBlock avec les données
+  // de la séquence complète (problématique, objectifs, progression…) afin que
+  // les prompts de génération soient ancrés dans la progression pédagogique.
   const openResourcePanel = useCallback((ctx: ResourcePanelContext) => {
-    setPanelContext(ctx)
+    let enriched = ctx
+    if (sequence) {
+      const seance = sequence.seances.find((s) => s.numero === ctx.seanceNumero)
+      const activite = seance?.activites.find(
+        (a) => (ctx.activiteId && a.id === ctx.activiteId) || a.titre === ctx.activiteTitre
+      )
+      enriched = {
+        ...ctx,
+        sequenceProblematique: sequence.problematique,
+        sequenceObjectifs: sequence.objectifs,
+        sequenceCompetences: sequence.competences,
+        seanceObjectifs: seance?.objectifs,
+        activiteDuree: activite?.duree,
+        progression: sequence.seances.map((s) => ({ numero: s.numero, titre: s.titre })),
+        autresActivites: seance?.activites
+          .filter((a) => a !== activite)
+          .map((a) => ({ titre: a.titre, type: a.type, duree: a.duree })),
+      }
+    }
+    setPanelContext(enriched)
     setPanelOpen(true)
-  }, [])
+  }, [sequence])
 
   const handlePanelClose = useCallback(() => {
     // Incrémenter le refreshKey de l'activité active → ActiviteBlock recharge son compteur
@@ -274,6 +299,7 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
             { level: 'sequence', field: 'corpus_refs' },
             (sequence.corpus_refs ?? []).filter(r => r !== ref),
           )}
+          onView={setViewCorpusId}
         />
       </div>
 
@@ -384,6 +410,7 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
             niveau={sequence.niveau}
             theme={sequence.theme}
             refreshKey={refreshKey}
+            onViewCorpus={setViewCorpusId}
           />
         ))}
       </div>
@@ -431,6 +458,9 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
       context={panelContext}
       provider={provider}
     />
+
+    {/* Panneau de lecture d'un texte du corpus */}
+    <CorpusViewer corpusId={viewCorpusId} onClose={() => setViewCorpusId(null)} />
     </>
   )
 }
@@ -450,6 +480,7 @@ function SeanceBlock({
   niveau,
   theme,
   refreshKey,
+  onViewCorpus,
 }: {
   seance: any
   seanceIndex: number
@@ -463,6 +494,7 @@ function SeanceBlock({
   niveau: string
   theme: string
   refreshKey: Record<string, number>
+  onViewCorpus: (ref: string) => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
 
@@ -589,6 +621,7 @@ function SeanceBlock({
                   niveau={niveau}
                   theme={theme}
                   refreshTrigger={refreshKey[activite.id ?? ''] ?? 0}
+                  onViewCorpus={onViewCorpus}
                 />
               ))}
 
@@ -631,6 +664,7 @@ function ActiviteBlock({
   niveau,
   theme,
   refreshTrigger,
+  onViewCorpus,
 }: {
   activite: Activite
   seanceIndex: number
@@ -647,6 +681,7 @@ function ActiviteBlock({
   niveau: string
   theme: string
   refreshTrigger: number
+  onViewCorpus: (ref: string) => void
 }) {
   const [collapsed, setCollapsed] = useState(true)
   const [isRejecting, setIsRejecting] = useState(false)
@@ -828,7 +863,7 @@ function ActiviteBlock({
 
       <CorpusBadge
         status={activite.corpus_status}
-        corpusRef={activite.corpus_ref}
+        corpusRef={effectiveCorpusRef}
         suggestion={activite.corpus_suggestion}
         sequenceCorpusRefs={sequenceCorpusRefs}
         onAssociate={(ref) => editor.replaceActivite(seanceIndex, activiteIndex, {
@@ -836,6 +871,7 @@ function ActiviteBlock({
           corpus_ref: ref,
           corpus_status: 'trouve',
         })}
+        onView={onViewCorpus}
       />
 
       {/* ── Zone Ressources IA ── */}
@@ -1031,27 +1067,32 @@ function CorpusManager({
   corpusRefs,
   onAdd,
   onRemove,
+  onView,
 }: {
   corpusRefs: string[]
   onAdd: (ref: string) => void
   onRemove: (ref: string) => void
+  onView: (ref: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<Array<{ id: string; auteur: string; oeuvre: string; titre: string; has_content: boolean; domaine_public: boolean }>>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const openPicker = async () => {
-    setOpen(true)
-    if (items.length > 0) return
+  // Charger les métadonnées dès le montage : les chips affichent auteur/œuvre
+  // (et le statut protégé) sans attendre l'ouverture du picker.
+  useEffect(() => {
+    let cancelled = false
     setLoading(true)
-    try {
-      const res = await fetch('/api/corpus')
-      const data = await res.json()
-      setItems(data.items ?? [])
-    } catch { /* silencieux */ }
-    finally { setLoading(false) }
-  }
+    fetch('/api/corpus')
+      .then(res => res.json())
+      .then(data => { if (!cancelled) setItems(data.items ?? []) })
+      .catch(() => { /* silencieux */ })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const openPicker = () => setOpen(true)
 
   const filtered = items.filter(item => {
     const q = search.toLowerCase()
@@ -1083,13 +1124,24 @@ function CorpusManager({
                   ? 'bg-amber-950/30 text-amber-400/80 border-amber-700/30'
                   : 'bg-emerald-950/50 text-emerald-400 border-emerald-700/40',
               )}
-              title={isProtected ? 'Texte protégé — contenu non disponible' : undefined}
             >
-              {isProtected
-                ? <Lock className="h-3 w-3 shrink-0" />
-                : <BookOpen className="h-3 w-3 shrink-0" />
-              }
-              {meta ? `${meta.auteur}, ${meta.oeuvre}` : ref.replace(/-/g, ' ')}
+              <button
+                onClick={() => onView(ref)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 transition-colors',
+                  isProtected ? 'hover:text-amber-300' : 'hover:text-emerald-300',
+                )}
+                title={isProtected
+                  ? 'Texte protégé — voir la référence'
+                  : 'Lire le texte'}
+              >
+                {isProtected
+                  ? <Lock className="h-3 w-3 shrink-0" />
+                  : <BookOpen className="h-3 w-3 shrink-0" />
+                }
+                {meta ? `${meta.auteur}, ${meta.oeuvre}` : ref.replace(/-/g, ' ')}
+                <Eye className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" />
+              </button>
               <button
                 onClick={() => onRemove(ref)}
                 className="ml-0.5 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
@@ -1220,12 +1272,14 @@ function CorpusBadge({
   suggestion,
   sequenceCorpusRefs,
   onAssociate,
+  onView,
 }: {
   status?: string
   corpusRef?: string
   suggestion?: CorpusSuggestion
   sequenceCorpusRefs: string[]
   onAssociate?: (ref: string) => void
+  onView?: (ref: string) => void
 }) {
   const [showPicker, setShowPicker] = useState(false)
 
@@ -1268,17 +1322,22 @@ function CorpusBadge({
     </div>
   ) : null
 
-  // Texte trouvé : n'afficher que si plusieurs textes coexistent dans la séquence
-  // (sinon l'info est déjà visible dans l'en-tête)
+  // Texte trouvé : badge cliquable pour lire le texte dans le panneau de lecture
   if (status === 'trouve' && corpusRef) {
-    if (sequenceCorpusRefs.length <= 1) return null
-    const shortLabel = corpusRef.split('-').slice(0, 2).join(' ')
+    const shortLabel = corpusRef.startsWith('ia-')
+      ? 'texte IA'
+      : corpusRef.split('-').slice(0, 2).join(' ')
     return (
       <div className="mt-2 mb-1">
-        <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-950/40 text-emerald-500/80 border border-emerald-800/30">
+        <button
+          onClick={() => onView?.(corpusRef)}
+          className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-950/40 text-emerald-500/80 border border-emerald-800/30 hover:bg-emerald-900/40 hover:text-emerald-300 hover:border-emerald-700/50 transition-colors capitalize"
+          title="Lire le texte"
+        >
           <BookOpen className="h-2.5 w-2.5 shrink-0" />
           {shortLabel}
-        </span>
+          <Eye className="h-2.5 w-2.5 shrink-0 opacity-60" />
+        </button>
       </div>
     )
   }

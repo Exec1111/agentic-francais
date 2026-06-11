@@ -426,6 +426,30 @@ sequences ──┐
 
 ---
 
+## Sources de textes pour une séquence
+
+Lors de la création d'une séquence (modale « Nouvelle séquence »), trois sources de supports sont proposées au professeur via `POST /api/corpus/suggest` et le composant `CorpusSelector` :
+
+| Source | Mécanisme |
+|--------|-----------|
+| **Corpus local** | `searchCorpus` + LLM-juge de pertinence (`corpus-ranker.ts`) sur les textes vérifiés de `data/corpus/` |
+| **Suggestions d'œuvres** | Le LLM propose des œuvres existantes à ajouter manuellement au corpus (`prompts/corpus-suggest.ts`) |
+| **Texte original IA** | `POST /api/corpus/generate` : le LLM écrit un texte inédit adapté au niveau/thème (`prompts/corpus-generate.ts`, schéma `GeneratedTextSchema`) |
+
+### Génération de texte original (`/api/corpus/generate`)
+
+1. Le LLM rédige un texte inédit (titre, genre, thèmes, notice pédagogique) via Structured Outputs. Le professeur peut guider l'écriture via des instructions complémentaires (`consignes` dans le corps de la requête), injectées dans le prompt avec priorité sur les règles générales. Plusieurs textes peuvent être générés successivement — chacun s'ajoute à la liste de la section et au corpus.
+2. `corpus-writer.ts` écrit le texte en Markdown + frontmatter dans `data/corpus/` (source de vérité — un item inséré uniquement en base serait supprimé au prochain sync comme orphelin).
+3. `syncCorpusFromFiles(force)` importe le fichier ; l'item devient un texte corpus ordinaire (`auteur: "Atelier (texte original IA)"`, `domaine_public: true`, `verified: true` / `verified_by: "generation-ia"`).
+4. L'item est pré-sélectionné dans l'UI et circule ensuite dans le pipeline standard (`corpus_refs` → `buildCorpusContextBlock` → ressources `extrait_oeuvre`).
+5. **Édition** : `PATCH /api/corpus/[id]` (titre/texte) — réservé aux items `auteur: "Atelier (texte original IA)"` (403 sinon). Le fichier est réécrit puis la ligne en base supprimée avant re-sync, pour passer par le chemin INSERT de l'importeur qui respecte `verified: true` (le chemin UPDATE forcerait `verified = 0`) ; `verified_by` passe à `"professeur"`.
+
+### Lecture des textes (`CorpusViewer`)
+
+Panneau latéral de lecture (`src/frontend/components/CorpusViewer.tsx`) affichant un texte complet du corpus via `GET /api/corpus/[id]` : métadonnées (niveaux, genres, thèmes, badge « Texte IA »), texte intégral, référence bibliographique, et message dédié pour les œuvres protégées sans contenu. Points d'entrée : chips corpus de l'en-tête de séquence (`CorpusManager`), badge corpus des activités (`CorpusBadge`), et icône œil sur les cartes de la modale de création (`CorpusSelector`). Rendu en z-index > modales pour être utilisable partout.
+
+---
+
 ## Dépendances clés
 
 | Package | Rôle |
