@@ -141,6 +141,30 @@ export function updateRessourceMarkdown(id: string, markdown: string): Ressource
   return row ? rowToRessource(row) : null
 }
 
+/**
+ * Met à jour le contenu structuré (JSON) ET le Markdown dérivé d'une ressource.
+ * Utilisé par l'éditeur de blocs (fiche_questions) : la source de vérité est le
+ * JSON, le Markdown est régénéré pour rester cohérent (impression, fallback).
+ * Retourne la ressource mise à jour, ou null si l'ID est introuvable.
+ */
+export function updateRessourceContenu(
+  id: string,
+  contenuJson: Record<string, unknown>,
+  markdown: string
+): RessourceStructuree | null {
+  const db = getDb()
+  const ts = now()
+
+  const result = db
+    .prepare('UPDATE ressources SET contenu_json = ?, contenu_markdown = ?, updated_at = ? WHERE id = ?')
+    .run(toJson(contenuJson), markdown, ts, id)
+
+  if (result.changes === 0) return null
+
+  const row = db.prepare('SELECT * FROM ressources WHERE id = ?').get(id) as any
+  return row ? rowToRessource(row) : null
+}
+
 // ── Suppression ────────────────────────────────────────────────────────────────
 
 /**

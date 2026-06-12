@@ -1,8 +1,10 @@
 # Guide : Ajouter un Type de Ressource
 
 > Documentation technique pour l'ajout et la maintenance des types de ressources pédagogiques.  
-> **Dernière mise à jour** : 11 juin 2026  
-> Voir aussi : [`doc/concepts.md`](./concepts.md) pour le glossaire complet des notions métier.
+> **Dernière mise à jour** : 12 juin 2026  
+> Voir aussi :
+> - [`doc/concepts.md`](./concepts.md) — glossaire complet des notions métier
+> - [`doc/fiche-questions-blocs.md`](./fiche-questions-blocs.md) — documentation du système de blocs (type `fiche_questions`)
 
 ---
 
@@ -300,7 +302,7 @@ Avant de considérer le type comme complet :
 
 | Type | Catégorie | Champs PROF ONLY | Suggéré pour |
 |------|-----------|-----------------|--------------|
-| `fiche_questions` | TWO_VERSIONS | `items[].correction`, `items[].justification`, `conseil_correction` | `exercice`, `evaluation` |
+| `fiche_questions` | TWO_VERSIONS | `blocs[].bonnes_reponses` (QCM), `blocs[].explication` (QCM), `blocs[].reponses_trous` (texte à trous), `blocs[].reponse_attendue` (question ouverte) | `exercice`, `evaluation` |
 | `cours` | TWO_VERSIONS | `sections[].note_prof`, `note_prof_globale` | `lecture`, `oral` |
 | `extrait_oeuvre` | TWO_VERSIONS | `questions[].reponse_attendue`, `questions[].elements_analyse`, `note_prof` | `lecture`, `debat` |
 | `bilan` | TWO_VERSIONS | `checklist[].reponse_correcte`, `checklist[].remediation` | `evaluation`, `exercice` |

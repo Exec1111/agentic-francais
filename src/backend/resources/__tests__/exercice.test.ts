@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { exerciceDefinition } from '../types/exercice'
+import { ficheQuestionsDefinition as exerciceDefinition } from '../types/fiche-questions'
 import type { ResourceGenerationContext } from '../registry'
 import type { CorpusItem } from '@/shared/schemas'
 

@@ -1,7 +1,7 @@
 # Glossaire & Architecture des concepts
 
 > Référence unique des notions métier du projet.  
-> **Dernière mise à jour** : 11 juin 2026
+> **Dernière mise à jour** : 12 juin 2026
 
 ---
 
@@ -25,7 +25,7 @@
         └── 📄 RESSOURCES IA (0..N) ── "Quel document génère-t-on ?"
             ├── type (TYPE DE RESSOURCE)
             ├── audience (professeur | élève)
-            └── format (si type = fiche_questions)
+            └── blocs (si type = fiche_questions) ── liste de blocs hétérogènes
 ```
 
 ---
@@ -58,7 +58,7 @@ Un type de ressource décrit **le document généré par l'IA** pour accompagner
 
 | Valeur | Label UI | Description |
 |--------|----------|-------------|
-| `fiche_questions` | Fiche questions | Questions / exercices structurés (QCM, texte à trous…) |
+| `fiche_questions` | Fiche questions | Fiche structurée en **blocs** (consigne, QCM, texte à trous, question ouverte, encadré) — voir `doc/fiche-questions-blocs.md` |
 | `extrait_oeuvre` | Extrait d'œuvre | Extrait littéraire avec appareil pédagogique |
 | `oeuvre_complete` | Texte complet | Texte court intégral annoté |
 | `cours` | Cours | Cours théorique structuré |
@@ -84,19 +84,20 @@ Les ressources de catégorie `TWO_VERSIONS` génèrent automatiquement les deux 
 
 ---
 
-## Formats d'exercice (sous-type de `fiche_questions`)
+## Types de blocs (`fiche_questions`)
 
-> Défini dans `src/shared/schemas.ts` — enum `ExerciceFormatSchema`
+> Défini dans `src/shared/resource-blocks.ts` — `BlocTypeSchema`
 
-Quand une ressource est de type `fiche_questions`, son contenu est structuré selon un format spécifique :
+Une ressource `fiche_questions` est une **liste de blocs hétérogènes** (2 à 20).
+Chaque bloc a un type qui détermine ses champs. Voir [`doc/fiche-questions-blocs.md`](./fiche-questions-blocs.md) pour la documentation complète.
 
 | Valeur | Description |
 |--------|-------------|
+| `consigne` | Instruction adressée à l'élève |
+| `encadre` | Rappel de cours, astuce, mise en garde, exemple |
+| `qcm` | Question à choix multiples |
 | `texte_a_trous` | Texte lacunaire à compléter |
-| `relier_notions` | Associer des éléments entre eux |
-| `entourer_reponse` | QCM (choix multiples) |
-| `questions_reponses` | Questions ouvertes avec réponse attendue |
-| `libre` | Format libre / mixte |
+| `question_ouverte` | Question rédactionnelle avec lignes de réponse |
 
 ---
 
@@ -126,9 +127,9 @@ Le système suggère automatiquement des types de ressources selon le type d'act
 |---------|---------------|
 | Types d'activité (enum) | `src/shared/schemas.ts` → `ActiviteSchema.type` |
 | Types de ressource (enum) | `src/shared/schemas.ts` → `RessourceTypeSchema` |
-| Formats d'exercice (enum) | `src/shared/schemas.ts` → `ExerciceFormatSchema` |
+| Types de blocs (enum) | `src/shared/resource-blocks.ts` → `BlocTypeSchema` |
 | Registre des types | `src/backend/resources/registry.ts` |
-| Définition `fiche_questions` | `src/backend/resources/types/exercice.ts` |
+| Définition `fiche_questions` | `src/backend/resources/types/fiche-questions.ts` |
 | Définition `extrait_oeuvre` | `src/backend/resources/types/extrait-oeuvre.ts` |
 | Config UI des types | `src/frontend/components/SequenceEditor.tsx` → `RESOURCE_TYPE_CONFIG` |
 | Panneau de génération | `src/frontend/components/ResourcePanel.tsx` |

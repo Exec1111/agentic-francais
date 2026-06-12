@@ -8,6 +8,10 @@ import {
 } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import type { RessourcePaire, RessourceStructuree, RessourceType } from '@/shared/schemas'
+import type { FicheQuestionsContenu } from '@/shared/resource-blocks'
+import { FicheBlocsRenderer } from './fiche-blocs/FicheBlocsRenderer'
+import { FicheBlocsEditor } from './fiche-blocs/FicheBlocsEditor'
+import { parseFicheBlocs } from './fiche-blocs/parse'
 
 // ── Config des types ───────────────────────────────────────────────────────────
 
@@ -192,6 +196,8 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
   const [activeAudience, setActiveAudience] = useState<'eleve' | 'professeur'>('eleve')
   const [isEditing, setIsEditing] = useState(false)
   const [editedContent, setEditedContent] = useState('')
+  // Brouillon des blocs (fiche_questions). null = ressource non structurée en blocs → mode Markdown.
+  const [blocsDraft, setBlocsDraft] = useState<FicheQuestionsContenu | null>(null)
   const [isLoadingDb, setIsLoadingDb] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -208,6 +214,8 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
 
   // Ref pour détecter un vrai changement de ressource (vs mise à jour de pairs après save)
   const currentResourceIdRef = useRef<string | null>(null)
+  // Sérialisation des blocs au dernier état sauvegardé (détection de modifications)
+  const savedBlocsRef = useRef<string>('')
 
   // ── Chargement au montage ──────────────────────────────────────────────────
 
@@ -281,6 +289,10 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
       // Changement de ressource → réinitialiser proprement
       currentResourceIdRef.current = resource.id
       setEditedContent(resource.contenu_markdown)
+      // Tente de parser le contenu en blocs (fiche_questions). null → mode Markdown.
+      const blocs = resource.type === 'fiche_questions' ? parseFicheBlocs(resource.contenu_json) : null
+      setBlocsDraft(blocs)
+      savedBlocsRef.current = blocs ? JSON.stringify(blocs) : ''
       setIsEditing(false)
       setSaveSuccess(false)
       setConfirmDelete(false)
@@ -377,7 +389,11 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
   const currentResource = currentPaire
     ? (effectiveAudience === 'eleve' && currentPaire.eleve ? currentPaire.eleve : currentPaire.professeur)
     : null
-  const hasUnsavedChanges = isEditing && currentResource !== null && editedContent !== currentResource.contenu_markdown
+  // Mode blocs actif si la ressource courante est une fiche_questions structurée
+  const isBlocksMode = blocsDraft !== null && currentResource?.type === 'fiche_questions'
+  const hasUnsavedChanges = isBlocksMode
+    ? JSON.stringify(blocsDraft) !== savedBlocsRef.current
+    : isEditing && currentResource !== null && editedContent !== currentResource.contenu_markdown
 
   const isGeneratingAny = generatingType !== null || batchRunning
 
@@ -391,27 +407,39 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
     setError(null)
 
     try {
+      // Mode blocs : on envoie le contenu_json, le Markdown est régénéré côté serveur
+      const payload = isBlocksMode
+        ? { contenu_json: blocsDraft as unknown as Record<string, unknown> }
+        : { contenu_markdown: editedContent }
+
       const res = await fetch(`/api/resources/${currentResource.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contenu_markdown: editedContent }),
+        body: JSON.stringify(payload),
       })
 
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
 
+      // Markdown à jour : renvoyé par le serveur en mode blocs, sinon le contenu édité
+      const nextMarkdown = isBlocksMode ? (data.contenu_markdown as string) : editedContent
+      const nextJson = isBlocksMode ? (blocsDraft as unknown as Record<string, unknown>) : undefined
+
       // Mettre à jour pairs en mémoire sans déclencher de reset d'édition
       setPairs(prev => prev.map((paire, idx) => {
         if (idx !== selectedIdx) return paire
+        const apply = (r: RessourceStructuree) =>
+          r.id === currentResource.id
+            ? { ...r, contenu_markdown: nextMarkdown, ...(nextJson ? { contenu_json: nextJson } : {}) }
+            : r
         return {
-          professeur: paire.professeur.id === currentResource.id
-            ? { ...paire.professeur, contenu_markdown: editedContent }
-            : paire.professeur,
-          eleve: paire.eleve?.id === currentResource.id
-            ? { ...paire.eleve, contenu_markdown: editedContent }
-            : paire.eleve,
+          professeur: apply(paire.professeur),
+          eleve: paire.eleve ? apply(paire.eleve) : paire.eleve,
         }
       }))
+
+      // En mode blocs, on fige le nouvel état sauvegardé
+      if (isBlocksMode) savedBlocsRef.current = JSON.stringify(blocsDraft)
 
       setSaveSuccess(true)
       setTimeout(() => setSaveSuccess(false), 2500)
@@ -421,7 +449,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
     } finally {
       setIsSaving(false)
     }
-  }, [currentResource, editedContent, isSaving, selectedIdx])
+  }, [currentResource, editedContent, isSaving, selectedIdx, isBlocksMode, blocsDraft])
 
   // ── Régénération complète de la ressource sélectionnée ───────────────────
 
@@ -479,17 +507,20 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
     if (hasUnsavedChanges) {
       // Sauvegarde silencieuse avant de fermer (évite la perte de données)
       try {
+        const payload = isBlocksMode
+          ? { contenu_json: blocsDraft as unknown as Record<string, unknown> }
+          : { contenu_markdown: editedContent }
         await fetch(`/api/resources/${currentResource!.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contenu_markdown: editedContent }),
+          body: JSON.stringify(payload),
         })
       } catch {
         // On ferme quand même en cas d'erreur réseau
       }
     }
     onClose()
-  }, [hasUnsavedChanges, currentResource, editedContent, onClose])
+  }, [hasUnsavedChanges, currentResource, editedContent, onClose, isBlocksMode, blocsDraft])
 
   return (
     <AnimatePresence>
@@ -762,7 +793,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
                           'p-1.5 transition-colors',
                           isEditing ? 'bg-gray-700 text-gray-100' : 'text-gray-600 hover:text-gray-400',
                         )}
-                        title="Éditer le Markdown"
+                        title={isBlocksMode ? 'Éditer les blocs' : 'Éditer le Markdown'}
                       >
                         <Edit3 className="h-3.5 w-3.5" />
                       </button>
@@ -771,7 +802,14 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
 
                   {/* Zone de contenu */}
                   <div className="flex-1 overflow-y-auto p-5 scrollbar-thin">
-                    {!isEditing ? (
+                    {isBlocksMode && blocsDraft ? (
+                      // ── Fiche de questions structurée en blocs ──
+                      !isEditing ? (
+                        <FicheBlocsRenderer contenu={blocsDraft} audience={effectiveAudience} />
+                      ) : (
+                        <FicheBlocsEditor contenu={blocsDraft} onChange={setBlocsDraft} />
+                      )
+                    ) : !isEditing ? (
                       <div
                         className="prose prose-invert max-w-none font-sans"
                         dangerouslySetInnerHTML={{ __html: renderMarkdown(editedContent) }}

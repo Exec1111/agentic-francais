@@ -117,14 +117,14 @@ export interface ResourceTypeDefinition<T extends Record<string, unknown>> {
 
 // ── Imports des définitions de types ──────────────────────────────────────────
 
-import { exerciceDefinition } from './types/exercice'
+import { ficheQuestionsDefinition } from './types/fiche-questions'
 import { extraitOeuvreDefinition } from './types/extrait-oeuvre'
 
 // ── Registre ──────────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const RESOURCE_REGISTRY: ResourceTypeDefinition<any>[] = [
-  exerciceDefinition,
+  ficheQuestionsDefinition,
   extraitOeuvreDefinition,
   // Ajouter les nouveaux types ici dans l'ordre souhaité d'affichage UI
 ]
