@@ -22,7 +22,11 @@
       "Bash(curl -s -o /dev/null -w \"\" http://localhost:58203/api/logs)",
       "Bash(curl -s http://localhost:58203/api/logs)",
       "Bash(curl -s \"http://localhost:54251/api/corpus\" -o /dev/null)",
-      "Bash(npx eslint *)"
+      "Bash(npx eslint *)",
+      "PowerShell(npx tsc --noEmit)",
+      "PowerShell(try { \\(Invoke-RestMethod http://localhost:11434/api/tags\\).models | Select-Object name, size | Format-Table } catch { \"Ollama injoignable: $_\" })",
+      "PowerShell(try { $logs = Invoke-RestMethod http://localhost:3000/api/logs; $logs | ForEach-Object { [PSCustomObject]@{ id=$_.id; provider=$_.provider; durationMs=$_.durationMs; nbMessages=$_.messages.Count; sysLen=$_.messages[0].content.Length; totalInputChars=\\($_.messages | Measure-Object -Property {$_.content.Length} -Sum\\).Sum; responseLen=$_.response.Length; error=$_.error } } | Format-Table -AutoSize } catch { \"Echec: $_\" })",
+      "PowerShell(Get-Content \"$env:LOCALAPPDATA\\\\Ollama\\\\server.log\" -Tail 80)"
     ]
   }
 }

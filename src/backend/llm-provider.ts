@@ -161,10 +161,21 @@ export class OllamaProvider implements LLMProvider {
   name = 'ollama'
   private baseUrl: string
   private model: string
+  private numCtx: number
+  private keepAlive: string
 
   constructor() {
     this.baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434'
     this.model = process.env.OLLAMA_MODEL || 'llama3'
+    // Fenêtre de contexte : le défaut Ollama (2048/4096) est trop petit pour
+    // les prompts de ressources (contexte pédagogique + corpus) + sortie JSON longue.
+    this.numCtx = Number(process.env.OLLAMA_NUM_CTX) || 8192
+    // Durée de résidence du modèle en VRAM entre deux appels. Le défaut Ollama
+    // (5 min) provoque un rechargement (~10-30 s pour 8 GB) si les générations
+    // sont espacées. 30 min garde le modèle chaud pendant une session de travail
+    // tout en le libérant après inactivité. Mettre "-1" pour le garder résident
+    // en permanence, ou "0" pour le décharger après chaque appel.
+    this.keepAlive = process.env.OLLAMA_KEEP_ALIVE || '30m'
   }
 
   async chat(messages: LLMMessage[], options?: ChatOptions): Promise<LLMResponse> {
@@ -174,14 +185,24 @@ export class OllamaProvider implements LLMProvider {
     // Construire le format pour Ollama
     let format: any = undefined
     if (options?.schema) {
-      // Ollama ≥0.5 supporte un JSON Schema objet pour contraindre la sortie
+      // Ollama ≥0.5 supporte un JSON Schema objet pour contraindre la sortie.
+      // Pas de target 'openApi3' ici : la grammaire llama.cpp ignore
+      // `nullable: true` (syntaxe OpenAPI) et forcerait tous les champs à
+      // non-null. La cible par défaut (jsonSchema7) produit
+      // `type: ["string","null"]`, que la grammaire comprend.
       format = zodToJsonSchema(options.schema, {
         $refStrategy: 'none',
-        target: 'openApi3',
       })
     } else if (options?.json) {
       format = 'json'
     }
+
+    // Désactive le mode "thinking" (gemma, qwen, deepseek-r1…) quand on attend
+    // du JSON structuré. Sinon le modèle dépense son budget de génération en
+    // raisonnement (renvoyé dans `message.thinking`, que l'on ignore) et
+    // `message.content` revient vide ou tronqué → "Unexpected end of JSON input".
+    // `think: false` est ignoré sans erreur par les modèles non-thinking.
+    const think = format ? false : undefined
 
     try {
       const response = await fetch(`${this.baseUrl}/api/chat`, {
@@ -192,8 +213,11 @@ export class OllamaProvider implements LLMProvider {
           messages,
           stream: false,
           format,
+          think,
+          keep_alive: this.keepAlive,
           options: {
             temperature: options?.temperature ?? 0.7,
+            num_ctx: this.numCtx,
           },
         }),
       })

@@ -1,7 +1,7 @@
 # Architecture du Moteur Agentique
 
 > Documentation technique du système multi-agents pédagogique.  
-> **Dernière mise à jour** : 20 mai 2025
+> **Dernière mise à jour** : 12 juin 2026
 
 ---
 
@@ -211,9 +211,50 @@ interface ChatOptions {
 LLM_PROVIDER=ollama          # ou "openai"
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=gemma4:latest
+OLLAMA_NUM_CTX=8192          # fenêtre de contexte (défaut code : 8192)
+OLLAMA_KEEP_ALIVE=30m       # résidence du modèle en VRAM (défaut code : 30m ; -1 = permanent, 0 = décharge après chaque appel)
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o
 ```
+
+### Spécificités Ollama
+
+- **`num_ctx` explicite** : le défaut Ollama (2048/4096 tokens) est trop petit pour
+  les prompts de ressources (contexte pédagogique + corpus) plus une sortie JSON
+  longue — la génération s'arrête net quand la fenêtre est pleine (JSON tronqué).
+  Le provider envoie donc toujours `num_ctx` (env `OLLAMA_NUM_CTX`, défaut 8192).
+- **JSON Schema standard, pas OpenAPI 3** : la conversion `zodToJsonSchema` pour
+  Ollama n'utilise PAS `target: 'openApi3'`. La grammaire llama.cpp ignore
+  `nullable: true` (syntaxe OpenAPI) et forcerait tous les champs à non-null —
+  en conflit avec les schémas à modèle plat (cf. `doc/fiche-questions-blocs.md`).
+  La cible par défaut produit `type: ["string","null"]`, comprise par la grammaire.
+- **`think: false` en mode structuré** : les modèles « thinking » (gemma4, qwen,
+  deepseek-r1…) renvoient leur raisonnement dans `message.thinking` et la réponse
+  dans `message.content`. Sous contrainte de schéma, le raisonnement épuise le
+  budget de génération et `message.content` revient **vide ou tronqué**
+  (`Unexpected end of JSON input`). Le provider envoie donc `think: false` dès
+  qu'un `format` est imposé (champ ignoré sans erreur par les modèles classiques).
+- **`keep_alive` (résidence VRAM)** : le provider envoie `keep_alive` (env
+  `OLLAMA_KEEP_ALIVE`, défaut `30m`) pour garder le modèle chaud entre deux
+  générations et éviter un rechargement de ~10-30 s (8 GB en VRAM). Sur un GPU
+  qui charge déjà le modèle à 100 %, c'est le principal levier de latence — la
+  vitesse de génération (~44 tok/s pour gemma4:12b) est sinon bornée par le
+  matériel et la longueur de sortie.
+
+### Libérer la VRAM à la demande
+
+Le modèle reste résident pendant la durée `keep_alive`. Pour récupérer la VRAM
+immédiatement (p. ex. avant de lancer un jeu), sans attendre l'expiration :
+
+```powershell
+ollama stop gemma4:12b   # décharge ce modèle ; il se rechargera au prochain appel
+```
+
+Autres options : attendre l'expiration du `keep_alive` (décharge automatique),
+ou quitter Ollama (icône barre des tâches → *Quit*). Pour une libération plus
+rapide sans y penser, baisser `OLLAMA_KEEP_ALIVE` (ex. `5m`). Éviter `-1`
+(résident permanent) en usage mixte travail/jeu, qui imposerait un `ollama stop`
+manuel à chaque fois.
 
 ---
 
