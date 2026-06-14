@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion'
 import {
   BookOpen, Target, Award, Clock, FileText, Plus, Trash2, X, Search,
-  ChevronUp, ChevronDown, ChevronRight, Undo2, Redo2, AlertTriangle,
-  RefreshCw, Loader2, Sparkles, User, GraduationCap, Lock, Eye,
+  ChevronRight, Undo2, Redo2, AlertTriangle,
+  RefreshCw, Loader2, Sparkles, User, GraduationCap, Lock, Eye, GripVertical,
 } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import { EditableText } from './EditableText'
@@ -357,23 +357,34 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
           </button>
         </div>
 
-        {sequence.seances.map((seance, si) => (
-          <SeanceBlock
-            key={`seance-${si}-${seance.numero}`}
-            seance={seance}
-            seanceIndex={si}
-            totalSeances={sequence.seances.length}
-            editor={editor}
-            onOpenPanel={openResourcePanel}
-            onRegenerate={handleRegenerateActivite}
-            sequenceCorpusRefs={sequence.corpus_refs ?? []}
-            sequenceTitle={sequence.titre}
-            niveau={sequence.niveau}
-            theme={sequence.theme}
-            refreshKey={refreshKey}
-            onViewCorpus={setViewCorpusId}
-          />
-        ))}
+        <Reorder.Group
+          as="div"
+          axis="y"
+          values={sequence.seances.map((s) => s.id ?? '')}
+          onReorder={(ids: string[]) => {
+            const byId = new Map(sequence.seances.map((s) => [s.id, s]))
+            editor.reorderSeances(ids.map((id) => byId.get(id)!).filter(Boolean))
+          }}
+          className="space-y-4"
+        >
+          {sequence.seances.map((seance, si) => (
+            <SeanceBlock
+              key={seance.id ?? si}
+              seance={seance}
+              seanceIndex={si}
+              totalSeances={sequence.seances.length}
+              editor={editor}
+              onOpenPanel={openResourcePanel}
+              onRegenerate={handleRegenerateActivite}
+              sequenceCorpusRefs={sequence.corpus_refs ?? []}
+              sequenceTitle={sequence.titre}
+              niveau={sequence.niveau}
+              theme={sequence.theme}
+              refreshKey={refreshKey}
+              onViewCorpus={setViewCorpusId}
+            />
+          ))}
+        </Reorder.Group>
       </div>
 
       {/* Évaluation finale */}
@@ -434,12 +445,16 @@ function SeanceBlock({
   onViewCorpus: (ref: string) => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
+  const dragControls = useDragControls()
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: seanceIndex * 0.05 }}
+    <Reorder.Item
+      as="div"
+      value={seance.id ?? ''}
+      dragListener={false}
+      dragControls={dragControls}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
       className="bg-gray-900/50 rounded-xl border border-gray-800 overflow-hidden"
     >
       {/* Header séance — tout l'en-tête plie/déplie (sauf les contrôles internes) */}
@@ -447,23 +462,15 @@ function SeanceBlock({
         onClick={() => setCollapsed(!collapsed)}
         className="px-4 py-3 border-b border-gray-800 flex items-center gap-2 cursor-pointer hover:bg-gray-800/20 transition-colors"
       >
-        {/* Drag / reorder */}
-        <div className="flex flex-col gap-0.5 shrink-0">
-          <button
-            onClick={(e) => { e.stopPropagation(); if (seanceIndex > 0) editor.moveSeance(seanceIndex, seanceIndex - 1) }}
-            disabled={seanceIndex === 0}
-            className={cn('p-0.5', seanceIndex > 0 ? 'text-gray-500 hover:text-white' : 'text-gray-800')}
-          >
-            <ChevronUp className="h-3 w-3" />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); if (seanceIndex < totalSeances - 1) editor.moveSeance(seanceIndex, seanceIndex + 1) }}
-            disabled={seanceIndex >= totalSeances - 1}
-            className={cn('p-0.5', seanceIndex < totalSeances - 1 ? 'text-gray-500 hover:text-white' : 'text-gray-800')}
-          >
-            <ChevronDown className="h-3 w-3" />
-          </button>
-        </div>
+        {/* Poignée de glissement (réordonner la séance) */}
+        <button
+          onPointerDown={(e) => { e.stopPropagation(); dragControls.start(e) }}
+          onClick={(e) => e.stopPropagation()}
+          className="shrink-0 cursor-grab active:cursor-grabbing text-gray-600 hover:text-gray-300 touch-none transition-colors"
+          title="Glisser pour réordonner la séance"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
 
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-900/50 text-primary-400 text-xs font-bold shrink-0">
           {seance.numero}
@@ -527,26 +534,37 @@ function SeanceBlock({
             <div className="p-4 space-y-3">
               <span className="text-xs text-gray-600 uppercase font-semibold">Activités</span>
 
-              {seance.activites.map((activite: Activite, ai: number) => (
-                <ActiviteBlock
-                  key={`act-${seanceIndex}-${ai}`}
-                  activite={activite}
-                  seanceIndex={seanceIndex}
-                  activiteIndex={ai}
-                  totalActivites={seance.activites.length}
-                  editor={editor}
-                  onOpenPanel={onOpenPanel}
-                  onRegenerate={onRegenerate}
-                  seanceTitre={seance.titre}
-                  seanceNumero={seance.numero}
-                  sequenceCorpusRefs={sequenceCorpusRefs}
-                  sequenceTitle={sequenceTitle}
-                  niveau={niveau}
-                  theme={theme}
-                  refreshTrigger={refreshKey[activite.id ?? ''] ?? 0}
-                  onViewCorpus={onViewCorpus}
-                />
-              ))}
+              <Reorder.Group
+                as="div"
+                axis="y"
+                values={seance.activites.map((a: Activite) => a.id ?? '')}
+                onReorder={(ids: string[]) => {
+                  const byId = new Map(seance.activites.map((a: Activite) => [a.id, a]))
+                  editor.reorderActivites(seanceIndex, ids.map((id) => byId.get(id)!).filter(Boolean) as Activite[])
+                }}
+                className="space-y-3"
+              >
+                {seance.activites.map((activite: Activite, ai: number) => (
+                  <ActiviteBlock
+                    key={activite.id ?? ai}
+                    activite={activite}
+                    seanceIndex={seanceIndex}
+                    activiteIndex={ai}
+                    totalActivites={seance.activites.length}
+                    editor={editor}
+                    onOpenPanel={onOpenPanel}
+                    onRegenerate={onRegenerate}
+                    seanceTitre={seance.titre}
+                    seanceNumero={seance.numero}
+                    sequenceCorpusRefs={sequenceCorpusRefs}
+                    sequenceTitle={sequenceTitle}
+                    niveau={niveau}
+                    theme={theme}
+                    refreshTrigger={refreshKey[activite.id ?? ''] ?? 0}
+                    onViewCorpus={onViewCorpus}
+                  />
+                ))}
+              </Reorder.Group>
 
               <button
                 onClick={() => editor.addActivite(seanceIndex, {
@@ -565,7 +583,7 @@ function SeanceBlock({
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.div>
+    </Reorder.Item>
   )
 }
 
@@ -605,6 +623,7 @@ function ActiviteBlock({
   onViewCorpus: (ref: string) => void
 }) {
   const [collapsed, setCollapsed] = useState(true)
+  const dragControls = useDragControls()
   const [isRejecting, setIsRejecting] = useState(false)
   const [motif, setMotif] = useState('')
   const [isRegenerating, setIsRegenerating] = useState(false)
@@ -663,7 +682,11 @@ function ActiviteBlock({
   }
 
   return (
-    <div
+    <Reorder.Item
+      as="div"
+      value={activite.id ?? ''}
+      dragListener={false}
+      dragControls={dragControls}
       className={cn(
         'rounded-lg border group',
         TYPE_COLORS[activite.type] || 'bg-gray-800/50 text-gray-300 border-gray-700',
@@ -676,23 +699,15 @@ function ActiviteBlock({
         className="flex items-center justify-between px-3 py-2 cursor-pointer"
       >
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          {/* Move up/down */}
-          <div className="flex flex-col gap-0 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              onClick={(e) => { e.stopPropagation(); if (activiteIndex > 0) editor.moveActivite(seanceIndex, activiteIndex, activiteIndex - 1) }}
-              disabled={activiteIndex === 0}
-              className={cn('p-0', activiteIndex > 0 ? 'hover:text-white' : 'text-transparent')}
-            >
-              <ChevronUp className="h-3 w-3" />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); if (activiteIndex < totalActivites - 1) editor.moveActivite(seanceIndex, activiteIndex, activiteIndex + 1) }}
-              disabled={activiteIndex >= totalActivites - 1}
-              className={cn('p-0', activiteIndex < totalActivites - 1 ? 'hover:text-white' : 'text-transparent')}
-            >
-              <ChevronDown className="h-3 w-3" />
-            </button>
-          </div>
+          {/* Poignée de glissement (réordonner l'activité) */}
+          <button
+            onPointerDown={(e) => { e.stopPropagation(); dragControls.start(e) }}
+            onClick={(e) => e.stopPropagation()}
+            className="shrink-0 cursor-grab active:cursor-grabbing text-gray-500 hover:text-white opacity-0 group-hover:opacity-100 touch-none transition-opacity"
+            title="Glisser pour réordonner l'activité"
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
 
           {isRegenerating
             ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
@@ -986,7 +1001,7 @@ function ActiviteBlock({
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </Reorder.Item>
   )
 }
 

@@ -17,9 +17,11 @@ export type EditorAction =
   | { type: 'ADD_SEANCE'; seance: Seance }
   | { type: 'REMOVE_SEANCE'; seanceIndex: number }
   | { type: 'MOVE_SEANCE'; from: number; to: number }
+  | { type: 'REORDER_SEANCES'; seances: Seance[] }
   | { type: 'ADD_ACTIVITE'; seanceIndex: number; activite: Activite }
   | { type: 'REMOVE_ACTIVITE'; seanceIndex: number; activiteIndex: number }
   | { type: 'MOVE_ACTIVITE'; seanceIndex: number; from: number; to: number }
+  | { type: 'REORDER_ACTIVITES'; seanceIndex: number; activites: Activite[] }
   | { type: 'REPLACE_SEANCE'; seanceIndex: number; seance: Seance }
   | { type: 'REPLACE_ACTIVITE'; seanceIndex: number; activiteIndex: number; activite: Activite }
   | { type: 'ADD_LIST_ITEM'; path: SequencePath; value: string }
@@ -87,6 +89,22 @@ function moveItem<T>(arr: T[], from: number, to: number): T[] {
   return result
 }
 
+/**
+ * Garantit un `id` stable sur chaque séance et activité.
+ * Indispensable pour le glisser-déposer : clés React stables → l'état local
+ * « plié/déplié » suit l'élément déplacé et non sa position.
+ */
+function ensureIds(seq: Sequence): Sequence {
+  return {
+    ...seq,
+    seances: seq.seances.map((s) => ({
+      ...s,
+      id: s.id ?? crypto.randomUUID(),
+      activites: s.activites.map((a) => ({ ...a, id: a.id ?? crypto.randomUUID() })),
+    })),
+  }
+}
+
 // === Reducer ===
 
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
@@ -117,7 +135,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
 
   if (action.type === 'SET_SEQUENCE') {
     return {
-      current: cloneSequence(action.sequence),
+      current: ensureIds(cloneSequence(action.sequence)),
       past: [],
       future: [],
       isDirty: false,
@@ -156,6 +174,11 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       })
       break
 
+    case 'REORDER_SEANCES':
+      // Le nouvel ordre complet est fourni (glisser-déposer) → on renumérote.
+      next = updateSeances(current, () => action.seances.map((s, i) => ({ ...s, numero: i + 1 })))
+      break
+
     case 'ADD_ACTIVITE':
       next = updateSeances(current, (ss) =>
         ss.map((s, i) =>
@@ -182,6 +205,15 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
           i === action.seanceIndex
             ? updateActivites(s, (acts) => moveItem(acts, action.from, action.to))
             : s
+        )
+      )
+      break
+
+    case 'REORDER_ACTIVITES':
+      // Le nouvel ordre complet des activités d'une séance est fourni (glisser-déposer).
+      next = updateSeances(current, (ss) =>
+        ss.map((s, i) =>
+          i === action.seanceIndex ? { ...s, activites: action.activites } : s
         )
       )
       break
@@ -274,6 +306,10 @@ export function useSequenceEditor() {
     dispatch({ type: 'MOVE_SEANCE', from, to })
   }, [])
 
+  const reorderSeances = useCallback((seances: Seance[]) => {
+    dispatch({ type: 'REORDER_SEANCES', seances })
+  }, [])
+
   const addActivite = useCallback((seanceIndex: number, activite: Activite) => {
     dispatch({ type: 'ADD_ACTIVITE', seanceIndex, activite })
   }, [])
@@ -284,6 +320,10 @@ export function useSequenceEditor() {
 
   const moveActivite = useCallback((seanceIndex: number, from: number, to: number) => {
     dispatch({ type: 'MOVE_ACTIVITE', seanceIndex, from, to })
+  }, [])
+
+  const reorderActivites = useCallback((seanceIndex: number, activites: Activite[]) => {
+    dispatch({ type: 'REORDER_ACTIVITES', seanceIndex, activites })
   }, [])
 
   const replaceSeance = useCallback((index: number, seance: Seance) => {
@@ -322,9 +362,11 @@ export function useSequenceEditor() {
     addSeance,
     removeSeance,
     moveSeance,
+    reorderSeances,
     addActivite,
     removeActivite,
     moveActivite,
+    reorderActivites,
     replaceSeance,
     replaceActivite,
     addListItem,
@@ -332,5 +374,5 @@ export function useSequenceEditor() {
     updateListItem,
     undo,
     redo,
-  }), [state, canUndo, canRedo, setSequence, updateField, addSeance, removeSeance, moveSeance, addActivite, removeActivite, moveActivite, replaceSeance, replaceActivite, addListItem, removeListItem, updateListItem, undo, redo])
+  }), [state, canUndo, canRedo, setSequence, updateField, addSeance, removeSeance, moveSeance, reorderSeances, addActivite, removeActivite, moveActivite, reorderActivites, replaceSeance, replaceActivite, addListItem, removeListItem, updateListItem, undo, redo])
 }
