@@ -68,5 +68,12 @@ export function buildContextePedagogique(ctx: ResourceGenerationContext): string
     lines.push('→ Le contenu généré doit être conforme à ces repères : difficulté calibrée sur le niveau, notions de langue limitées aux attendus de l\'année, formulations adaptées à l\'âge des élèves.')
   }
 
+  // Instructions libres du professeur — priorité maximale sur les règles générales.
+  if (ctx.consignes && ctx.consignes.trim()) {
+    lines.push('')
+    lines.push('INSTRUCTIONS COMPLÉMENTAIRES DU PROFESSEUR — à respecter impérativement, elles priment sur les règles générales ci-dessus :')
+    lines.push(`"${ctx.consignes.trim()}"`)
+  }
+
   return lines.join('\n')
 }

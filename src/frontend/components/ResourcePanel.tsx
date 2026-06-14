@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import type { RessourcePaire, RessourceStructuree, RessourceType } from '@/shared/schemas'
+import { RessourceTypeSchema } from '@/shared/schemas'
 import type { FicheQuestionsContenu } from '@/shared/resource-blocks'
 import { FicheBlocsRenderer } from './fiche-blocs/FicheBlocsRenderer'
 import { FicheBlocsEditor } from './fiche-blocs/FicheBlocsEditor'
@@ -207,6 +208,12 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
   const [generatingType, setGeneratingType] = useState<RessourceType | null>(null)
   const [batchRunning, setBatchRunning] = useState(false)
   const [suggestedTypes, setSuggestedTypes] = useState<RessourceType[]>([])
+  // Menu déroulant "Autre type…" : permet de générer n'importe quel type déclaré,
+  // au-delà des suggestions liées au type d'activité.
+  const [typeMenuOpen, setTypeMenuOpen] = useState(false)
+  // Instructions complémentaires libres du professeur (portée : prochaine génération).
+  const [consignes, setConsignes] = useState('')
+  const [consignesOpen, setConsignesOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // null = inconnu (pas encore chargé), true = contenu disponible, false = protégé
   const [corpusHasContent, setCorpusHasContent] = useState<boolean | null>(null)
@@ -227,6 +234,9 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
       setActiveAudience('eleve')
       setIsEditing(false)
       setError(null)
+      setTypeMenuOpen(false)
+      setConsignes('')
+      setConsignesOpen(false)
       return
     }
 
@@ -332,6 +342,8 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
           activiteDuree:         context.activiteDuree,
           progression:           context.progression,
           autresActivites:       context.autresActivites,
+          // Instructions libres du professeur (vide → undefined côté serveur)
+          consignes:             consignes.trim() || undefined,
         }),
       })
 
@@ -345,7 +357,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
     } finally {
       setGeneratingType(null)
     }
-  }, [context, provider])
+  }, [context, provider, consignes])
 
   const handleGenerate = useCallback(async (type: RessourceType) => {
     const paire = await generateOne(type)
@@ -383,6 +395,12 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
 
   const generatedTypes = pairs.map(p => p.professeur.type)
   const pendingSuggestions = suggestedTypes.filter(t => !generatedTypes.includes(t))
+  // Tous les autres types déclarés (hors suggestions et hors déjà générés), pour
+  // le menu "Autre type…". Aucune restriction d'implémentation : un type non encore
+  // implémenté renverra une erreur claire à la génération (assumé, cf. roadmap).
+  const otherTypes = RessourceTypeSchema.options.filter(
+    t => !generatedTypes.includes(t) && !pendingSuggestions.includes(t)
+  )
   const currentPaire = selectedIdx !== null ? pairs[selectedIdx] : null
   const hasEleve = Boolean(currentPaire?.eleve)
   const effectiveAudience = (!hasEleve && activeAudience === 'eleve') ? 'professeur' : activeAudience
@@ -602,44 +620,111 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
                 </div>
               )}
 
-              {/* Suggestions à générer */}
-              {(pendingSuggestions.length > 0 || pairs.length === 0) && (
-                <div className="flex flex-wrap gap-1.5 items-center">
-                  {pendingSuggestions.map(type => {
-                    const cfg = TYPE_CONFIG[type] ?? { label: type, color: 'border-gray-700 text-gray-500' }
-                    const isGen = generatingType === type
-                    return (
-                      <button
-                        key={type}
-                        onClick={() => handleGenerate(type as RessourceType)}
-                        disabled={isGeneratingAny}
-                        className={cn(
-                          'flex items-center gap-1 px-2.5 py-1 rounded-lg border border-dashed text-xs transition-all disabled:opacity-40',
-                          isGen ? 'border-blue-600 text-blue-400' : 'border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300',
-                        )}
-                      >
-                        {isGen
-                          ? <Loader2 className="h-3 w-3 animate-spin" />
-                          : <Plus className="h-3 w-3" />}
-                        {cfg.label}
-                      </button>
-                    )
-                  })}
-
-                  {pendingSuggestions.length > 1 && (
+              {/* Suggestions à générer + sélecteur libre de tous les types */}
+              <div className="flex flex-wrap gap-1.5 items-center">
+                {pendingSuggestions.map(type => {
+                  const cfg = TYPE_CONFIG[type] ?? { label: type, color: 'border-gray-700 text-gray-500' }
+                  const isGen = generatingType === type
+                  return (
                     <button
-                      onClick={handleGenerateAll}
+                      key={type}
+                      onClick={() => handleGenerate(type as RessourceType)}
                       disabled={isGeneratingAny}
-                      className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-600/10 border border-blue-700/40 text-xs text-blue-400 hover:bg-blue-600/20 disabled:opacity-40 font-semibold transition-all"
+                      className={cn(
+                        'flex items-center gap-1 px-2.5 py-1 rounded-lg border border-dashed text-xs transition-all disabled:opacity-40',
+                        isGen ? 'border-blue-600 text-blue-400' : 'border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300',
+                      )}
                     >
-                      {batchRunning
+                      {isGen
                         ? <Loader2 className="h-3 w-3 animate-spin" />
-                        : <Sparkles className="h-3 w-3" />}
-                      {batchRunning ? 'Génération en cours...' : `Tout générer (${pendingSuggestions.length})`}
+                        : <Plus className="h-3 w-3" />}
+                      {cfg.label}
                     </button>
+                  )
+                })}
+
+                {pendingSuggestions.length > 1 && (
+                  <button
+                    onClick={handleGenerateAll}
+                    disabled={isGeneratingAny}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-600/10 border border-blue-700/40 text-xs text-blue-400 hover:bg-blue-600/20 disabled:opacity-40 font-semibold transition-all"
+                  >
+                    {batchRunning
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <Sparkles className="h-3 w-3" />}
+                    {batchRunning ? 'Génération en cours...' : `Tout générer (${pendingSuggestions.length})`}
+                  </button>
+                )}
+
+                {/* Sélecteur libre : n'importe quel type déclaré (au-delà des suggestions) */}
+                {otherTypes.length > 0 && (
+                  <div className="relative">
+                    <button
+                      onClick={() => setTypeMenuOpen(v => !v)}
+                      disabled={isGeneratingAny}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-dashed border-gray-700 text-xs text-gray-500 hover:border-gray-500 hover:text-gray-300 disabled:opacity-40 transition-all"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Autre type…
+                    </button>
+
+                    {typeMenuOpen && (
+                      <>
+                        {/* Backdrop : ferme le menu au clic extérieur */}
+                        <div className="fixed inset-0 z-20" onClick={() => setTypeMenuOpen(false)} />
+                        <div className="absolute left-0 top-full mt-1 z-30 w-52 max-h-72 overflow-y-auto rounded-lg border border-gray-700 bg-gray-900 shadow-xl p-1">
+                          <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-gray-500">Tous les types</p>
+                          {otherTypes.map(type => {
+                            const cfg = TYPE_CONFIG[type] ?? { label: type, color: 'border-gray-700 text-gray-400', activeColor: 'bg-gray-600' }
+                            return (
+                              <button
+                                key={type}
+                                onClick={() => { setTypeMenuOpen(false); handleGenerate(type) }}
+                                disabled={isGeneratingAny}
+                                className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-800 disabled:opacity-40 transition-colors"
+                              >
+                                <span className={cn('text-[11px] px-2 py-0.5 rounded border font-medium', cfg.color)}>
+                                  {cfg.label}
+                                </span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Instructions complémentaires (optionnel) — portée : prochaine génération */}
+              <div>
+                <button
+                  onClick={() => setConsignesOpen(v => !v)}
+                  className="flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-gray-200 transition-colors"
+                >
+                  <Edit3 className="h-3 w-3" />
+                  Instructions complémentaires
+                  {consignes.trim() && !consignesOpen && (
+                    <span className="text-[10px] text-blue-400 bg-blue-500/10 border border-blue-700/30 px-1.5 py-0.5 rounded-full">actives</span>
                   )}
-                </div>
-              )}
+                  <span className="text-gray-600 text-[9px]">{consignesOpen ? '▲' : '▼'}</span>
+                </button>
+
+                {consignesOpen && (
+                  <>
+                    <textarea
+                      value={consignes}
+                      onChange={(e) => setConsignes(e.target.value)}
+                      placeholder="Ex : insiste sur le vocabulaire des émotions, privilégie les QCM, évite les questions trop longues…"
+                      rows={2}
+                      className="mt-1.5 w-full text-xs bg-gray-900/60 border border-gray-700 rounded-lg px-2.5 py-2 text-gray-200 placeholder-gray-600 focus:border-blue-600/60 focus:outline-none resize-y"
+                    />
+                    <p className="mt-1 text-[10px] text-gray-500">
+                      Appliquées à la prochaine génération (suggestions ou « Autre type… »). Non enregistrées.
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
 
             {/* ── Corps ── */}

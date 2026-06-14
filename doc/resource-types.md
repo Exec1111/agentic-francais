@@ -31,8 +31,8 @@ Cela garantit la cohérence entre les deux versions (même exercice, même corri
 
 | Catégorie | Description | Exemple |
 |-----------|-------------|---------|
-| `TWO_VERSIONS` | Génère un document élève ET un document prof | `exercice`, `cours`, `extrait_oeuvre` |
-| `TEACHER_ONLY` | Un seul document, à destination du professeur uniquement | `dictee` |
+| `TWO_VERSIONS` | Génère un document élève ET un document prof | `fiche_questions`, `extrait_oeuvre` |
+| `TEACHER_ONLY` | Un seul document, à destination du professeur uniquement | *(aucun type implémenté à ce jour ; `dictee` est prévu)* |
 
 > **Pour ajouter une catégorie** (ex. `STUDENT_ONLY` pour une affiche) : ajouter la valeur dans `ResourceCategory` dans `src/shared/schemas/resource.ts` et gérer le cas dans le `ResourceRegistry`.
 
@@ -300,11 +300,23 @@ Avant de considérer le type comme complet :
 
 ## Référence : types existants et leurs spécificités
 
+### Types implémentés (enregistrés dans le registre)
+
 | Type | Catégorie | Champs PROF ONLY | Suggéré pour |
 |------|-----------|-----------------|--------------|
 | `fiche_questions` | TWO_VERSIONS | `blocs[].bonnes_reponses` (QCM), `blocs[].explication` (QCM), `blocs[].reponses_trous` (texte à trous), `blocs[].reponse_attendue` (question ouverte) | `exercice`, `evaluation` |
-| `cours` | TWO_VERSIONS | `sections[].note_prof`, `note_prof_globale` | `lecture`, `oral` |
 | `extrait_oeuvre` | TWO_VERSIONS | `questions[].reponse_attendue`, `questions[].elements_analyse`, `note_prof` | `lecture`, `debat` |
+
+### Types déclarés dans l'enum mais NON implémentés
+
+> ⚠️ Ces types figurent dans `RessourceTypeSchema` mais n'ont **aucune définition**
+> dans `registry.ts` (pas de fichier dans `src/backend/resources/types/`). Le tableau
+> ci-dessous décrit l'**intention de conception**, pas l'état du code. Tenter de les
+> générer lève `Type de ressource inconnu ou non enregistré`.
+
+| Type | Catégorie (prévue) | Champs PROF ONLY (prévus) | Suggéré pour (prévu) |
+|------|-----------|-----------------|--------------|
+| `cours` | TWO_VERSIONS | `sections[].note_prof`, `note_prof_globale` | `lecture`, `oral` |
 | `bilan` | TWO_VERSIONS | `checklist[].reponse_correcte`, `checklist[].remediation` | `evaluation`, `exercice` |
 | `oeuvre_complete` | TWO_VERSIONS | `questions[].reponse_attendue`, `questions_approfondissement[].pistes` | `lecture` |
 | `grille_evaluation` | TWO_VERSIONS | `competences[].niveaux[].points`, `bareme` | `production_ecrite`, `evaluation`, `oral` |

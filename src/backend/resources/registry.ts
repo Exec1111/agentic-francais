@@ -54,6 +54,12 @@ export interface ResourceGenerationContext {
   progression?: { numero: number; titre: string }[]
   /** Autres activités de la même séance (pour éviter les doublons) */
   autresActivites?: { titre: string; type: string; duree?: number }[]
+  /**
+   * Instructions complémentaires libres saisies par le professeur au moment de
+   * la génération (portée : cette génération uniquement, non persistées).
+   * Injectées en priorité dans le prompt via buildContextePedagogique.
+   */
+  consignes?: string
 }
 
 // ── Interface à implémenter pour chaque type ───────────────────────────────────
