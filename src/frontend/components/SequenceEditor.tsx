@@ -469,22 +469,26 @@ function SeanceBlock({
           {seance.numero}
         </span>
 
-        <div className="flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
-          <EditableText
-            value={seance.titre}
-            onSave={(v) => editor.updateField({ level: 'seance', seanceIndex, field: 'titre' }, v)}
-            className="font-medium text-gray-200"
-          />
+        <div className="flex-1 min-w-0">
+          <span className="inline-block max-w-full" onClick={(e) => e.stopPropagation()}>
+            <EditableText
+              value={seance.titre}
+              onSave={(v) => editor.updateField({ level: 'seance', seanceIndex, field: 'titre' }, v)}
+              className="font-medium text-gray-200"
+            />
+          </span>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <div className="flex items-center gap-1 text-xs text-gray-500" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center gap-1 text-xs text-gray-500">
             <Clock className="h-3 w-3" />
-            <EditableText
-              value={String(seance.duree)}
-              onSave={(v) => editor.updateField({ level: 'seance', seanceIndex, field: 'duree' }, Number(v) || 55)}
-              className="text-xs text-gray-500 w-8 text-center"
-            />
+            <span onClick={(e) => e.stopPropagation()}>
+              <EditableText
+                value={String(seance.duree)}
+                onSave={(v) => editor.updateField({ level: 'seance', seanceIndex, field: 'duree' }, Number(v) || 55)}
+                className="text-xs text-gray-500 w-8 text-center"
+              />
+            </span>
             <span>min</span>
           </div>
           <button
