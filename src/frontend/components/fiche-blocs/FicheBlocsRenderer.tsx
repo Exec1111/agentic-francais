@@ -136,10 +136,10 @@ function ExerciseHeader({ num, bloc, children }: { num?: number; bloc: Bloc; chi
 function AideHint({ aide }: { aide: string | null }) {
   if (!aide) return null
   return (
-    <p className="flex items-start gap-1.5 text-xs text-gray-500 mt-2 italic">
+    <span className="flex items-start gap-1.5 text-xs text-gray-500 mt-2 italic">
       <HelpCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-gray-600" />
       Besoin d&apos;aide ? {aide}
-    </p>
+    </span>
   )
 }
 

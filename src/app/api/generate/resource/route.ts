@@ -81,6 +81,7 @@ export async function POST(request: NextRequest) {
       activiteDuree,
       progression,
       autresActivites,
+      consignes,
     } = body
 
     // Validation minimale
@@ -131,6 +132,7 @@ export async function POST(request: NextRequest) {
       activiteDuree: typeof activiteDuree === 'number' ? activiteDuree : undefined,
       progression: Array.isArray(progression) ? progression : undefined,
       autresActivites: Array.isArray(autresActivites) ? autresActivites : undefined,
+      consignes: typeof consignes === 'string' ? consignes : undefined,
     }
 
     // Génération (un seul appel LLM → deux versions)

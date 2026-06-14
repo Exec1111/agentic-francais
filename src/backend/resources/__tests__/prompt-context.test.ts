@@ -80,6 +80,24 @@ describe('buildContextePedagogique — contexte enrichi', () => {
   })
 })
 
+describe('buildContextePedagogique — instructions complémentaires du professeur', () => {
+  it("injecte le bloc d'instructions quand consignes est renseigné", () => {
+    const block = buildContextePedagogique(minimalCtx({ consignes: 'Privilégie les QCM courts' }))
+    expect(block).toContain('INSTRUCTIONS COMPLÉMENTAIRES DU PROFESSEUR')
+    expect(block).toContain('Privilégie les QCM courts')
+  })
+
+  it('omet le bloc quand consignes est absent', () => {
+    const block = buildContextePedagogique(minimalCtx())
+    expect(block).not.toContain('INSTRUCTIONS COMPLÉMENTAIRES')
+  })
+
+  it("ignore des consignes composées uniquement d'espaces", () => {
+    const block = buildContextePedagogique(minimalCtx({ consignes: '   \n  ' }))
+    expect(block).not.toContain('INSTRUCTIONS COMPLÉMENTAIRES')
+  })
+})
+
 describe('buildContextePedagogique — repères du programme officiel', () => {
   it('inclut les repères pour un niveau reconnu (5e)', () => {
     const block = buildContextePedagogique(minimalCtx({ niveau: '5e' }))

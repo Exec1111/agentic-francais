@@ -56,10 +56,25 @@ Un type d'activité décrit **ce que font les élèves** pendant un moment de la
 
 Un type de ressource décrit **le document généré par l'IA** pour accompagner une activité.
 
+> ⚠️ **État d'implémentation** — Les 10 valeurs ci-dessous sont déclarées dans
+> l'enum `RessourceTypeSchema` (elles passent la validation), mais **seules 2 sont
+> réellement implémentées** dans le registre (`src/backend/resources/registry.ts`).
+> Tenter de générer un type « non implémenté » lève
+> `Type de ressource inconnu ou non enregistré`.
+
+### Types implémentés (générables)
+
 | Valeur | Label UI | Description |
 |--------|----------|-------------|
 | `fiche_questions` | Fiche questions | Fiche structurée en **blocs** (consigne, QCM, texte à trous, question ouverte, encadré) — voir `doc/fiche-questions-blocs.md` |
 | `extrait_oeuvre` | Extrait d'œuvre | Extrait littéraire avec appareil pédagogique |
+
+### Types déclarés mais NON implémentés (à venir)
+
+> Aucune définition dans le registre à ce jour. Le tableau décrit l'intention.
+
+| Valeur | Label UI | Description |
+|--------|----------|-------------|
 | `oeuvre_complete` | Texte complet | Texte court intégral annoté |
 | `cours` | Cours | Cours théorique structuré |
 | `bilan` | Bilan | Synthèse de séance / points clés |
@@ -115,6 +130,12 @@ Le système suggère automatiquement des types de ressources selon le type d'act
 | `oral` | `fiche_methode` |
 | `collaboration` | *(aucune suggestion auto)* |
 | `recherche` | `fiche_methode` |
+
+> ⚠️ Les suggestions vers des types **non implémentés** (`fiche_methode`,
+> `grille_evaluation`) apparaissent dans l'UI mais ne sont pas générables tant que
+> leur définition n'existe pas dans le registre. Côté backend,
+> `getSuggestedResourceTypes` filtre le registre et ne renvoie donc que les types
+> réellement enregistrés ; la liste frontend `SUGGESTED_RESOURCES` n'a pas ce filtre.
 
 > Configuré dans `src/backend/resources/types/*.ts` via le champ `suggestedFor`  
 > et dupliqué côté frontend dans `SUGGESTED_RESOURCES` (`SequenceEditor.tsx`)
