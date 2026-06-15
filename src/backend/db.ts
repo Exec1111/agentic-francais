@@ -173,6 +173,16 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_ressources_paired   ON ressources(paired_with);
     `,
   },
+  {
+    version: 5,
+    name: 'corpus_refs_on_activites',
+    sql: `
+      ALTER TABLE activites ADD COLUMN corpus_refs TEXT NOT NULL DEFAULT '[]';
+      UPDATE activites
+        SET corpus_refs = json_array(corpus_ref)
+        WHERE corpus_ref IS NOT NULL AND corpus_ref != '';
+    `,
+  },
 ]
 
 function runMigrations(db: Database.Database) {

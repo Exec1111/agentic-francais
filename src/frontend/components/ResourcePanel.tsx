@@ -54,6 +54,8 @@ export interface ResourcePanelContext {
   activiteTitre: string
   activiteType: string
   activiteConsigne: string
+  corpusRefs?: string[]
+  /** @deprecated Utiliser corpusRefs */
   corpusRef?: string
   /** Si true, le panel s'ouvre sans sélectionner la première ressource existante
    *  → les chips de suggestions sont au premier plan pour générer un nouveau type. */
@@ -269,22 +271,31 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
 
   // ── Vérification disponibilité du texte corpus ────────────────────────────
 
+  const activeCorpusRefs = context.corpusRefs?.length
+    ? context.corpusRefs
+    : (context.corpusRef ? [context.corpusRef] : [])
+
   useEffect(() => {
-    if (!isOpen || !context.corpusRef) {
+    if (!isOpen || activeCorpusRefs.length === 0) {
       setCorpusHasContent(null)
       setCorpusMeta(null)
       return
     }
-    fetch(`/api/corpus/${encodeURIComponent(context.corpusRef)}`)
+    fetch(`/api/corpus/${encodeURIComponent(activeCorpusRefs[0])}`)
       .then(r => r.json())
       .then(data => {
         if (data.item) {
           setCorpusHasContent(data.item.contenu !== '')
-          setCorpusMeta({ auteur: data.item.auteur, oeuvre: data.item.oeuvre, pages: data.item.pages })
+          const extra = activeCorpusRefs.length > 1 ? ` (+${activeCorpusRefs.length - 1} autre${activeCorpusRefs.length > 2 ? 's' : ''})` : ''
+          setCorpusMeta({
+            auteur: data.item.auteur,
+            oeuvre: data.item.oeuvre + extra,
+            pages: data.item.pages,
+          })
         }
       })
       .catch(() => { /* silencieux */ })
-  }, [isOpen, context.corpusRef])
+  }, [isOpen, activeCorpusRefs.join(',')])
 
   // ── Sync contenu édité avec la sélection ──────────────────────────────────
   // Règle : on réinitialise l'édition UNIQUEMENT si on change de ressource.
@@ -332,7 +343,8 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
           activiteConsigne: context.activiteConsigne,
           ressourceType:    type,
           ressourceTitre:   DEFAULT_TITLES[type] || type,
-          corpus_ref:       context.corpusRef,
+          corpus_refs:      activeCorpusRefs.length > 0 ? activeCorpusRefs : undefined,
+          corpus_ref:       activeCorpusRefs[0],
           provider,
           // Contexte pédagogique enrichi
           sequenceProblematique: context.sequenceProblematique,

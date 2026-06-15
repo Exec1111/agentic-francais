@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion'
 import {
   BookOpen, Target, Award, Clock, FileText, Plus, Trash2, X, Search,
@@ -15,6 +15,7 @@ import { CorpusViewer } from './CorpusViewer'
 import type { ResourcePanelContext } from './ResourcePanel'
 import type { useSequenceEditor, SequencePath } from '@/frontend/hooks/useSequenceEditor'
 import type { Activite } from '@/shared/schemas'
+import { ACTIVITES_CORPUS, inferCorpusRefs, resolveActiviteCorpusRefs } from '@/shared/corpus-match'
 
 // Config visuelle des types de ressources IA (utilisée dans l'accordéon)
 const RESOURCE_TYPE_CONFIG: Record<string, { label: string; chip: string }> = {
@@ -47,7 +48,33 @@ const ACTIVITY_TYPES = [
 ]
 
 // Types d'activités qui bénéficient d'un texte du corpus (même définition que côté serveur)
-const CORPUS_ACTIVITE_TYPES = new Set(['lecture', 'exercice', 'production_ecrite'])
+const CORPUS_ACTIVITE_TYPES = ACTIVITES_CORPUS
+
+function computeEffectiveCorpusRefs(
+  activite: Activite,
+  sequenceCorpusRefs: string[],
+  corpusById: Record<string, CorpusMeta>,
+  seanceObjectifs: string[],
+): string[] {
+  const stored = resolveActiviteCorpusRefs(activite)
+  const candidates = sequenceCorpusRefs
+    .map((ref) => corpusById[ref])
+    .filter(Boolean) as CorpusMeta[]
+
+  if (candidates.length === 0) return stored
+
+  return inferCorpusRefs(
+    candidates,
+    activite.type,
+    activite.titre,
+    seanceObjectifs,
+    {
+      consigne: activite.consigne,
+      supports: activite.supports,
+      existingRefs: stored,
+    }
+  )
+}
 
 // Types de ressources suggérés par type d'activité (affichage inline)
 const SUGGESTED_RESOURCES: Record<string, string[]> = {
@@ -74,6 +101,23 @@ const PANEL_CLOSED: ResourcePanelContext = {
   activiteTitre: '', activiteType: 'exercice', activiteConsigne: '',
 }
 
+// Métadonnées d'un texte du corpus (réponse de /api/corpus)
+export interface CorpusMeta {
+  id: string
+  auteur: string
+  oeuvre: string
+  titre: string
+  has_content: boolean
+  domaine_public: boolean
+}
+
+/** Libellé court et lisible d'un texte corpus pour les chips/badges. */
+export function corpusLabel(meta: CorpusMeta | undefined, fallbackRef: string): string {
+  if (meta) return meta.oeuvre || meta.titre || meta.auteur
+  // Repli si la métadonnée n'est pas (encore) chargée
+  return fallbackRef.startsWith('ia-') ? 'Texte IA' : fallbackRef.replace(/-/g, ' ')
+}
+
 export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
   const { sequence } = editor
   const [panelOpen, setPanelOpen] = useState(false)
@@ -84,6 +128,24 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
   const [competencesOpen, setCompetencesOpen] = useState(false)
   // Texte du corpus affiché dans le panneau de lecture (null = fermé)
   const [viewCorpusId, setViewCorpusId] = useState<string | null>(null)
+  // Métadonnées corpus chargées une seule fois ici, partagées avec les chips
+  // (CorpusManager) et les badges d'activité (CorpusBadge) → source unique.
+  const [corpusItems, setCorpusItems] = useState<CorpusMeta[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/corpus')
+      .then((res) => res.json())
+      .then((data) => { if (!cancelled) setCorpusItems(data.items ?? []) })
+      .catch(() => { /* silencieux */ })
+    return () => { cancelled = true }
+  }, [])
+
+  const corpusById = useMemo(() => {
+    const map: Record<string, CorpusMeta> = {}
+    for (const it of corpusItems) map[it.id] = it
+    return map
+  }, [corpusItems])
 
   // Enrichit le contexte minimal fourni par ActiviteBlock avec les données
   // de la séquence complète (problématique, objectifs, progression…) afin que
@@ -168,25 +230,34 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
 
     const data = await res.json()
 
-    // Fix C : Ré-évaluer le lien corpus avec les textes actuels de la séquence.
-    // Si l'activité n'avait pas de corpus_ref mais que la séquence en a un, on le lie maintenant.
-    const newCorpusRef = (() => {
-      if (activite.corpus_ref) return activite.corpus_ref           // Déjà lié — on conserve
-      if (!sequence.corpus_refs?.length) return undefined            // Pas de texte dans la séquence
-      if (!CORPUS_ACTIVITE_TYPES.has(activite.type)) return undefined // Type non concerné
-      return sequence.corpus_refs[0]                                 // Premier texte disponible
-    })()
+    const sequenceCorpusItems = (sequence.corpus_refs ?? [])
+      .map((id) => corpusById[id])
+      .filter(Boolean) as CorpusMeta[]
+
+    const newCorpusRefs = CORPUS_ACTIVITE_TYPES.has(data.activite.type) && sequenceCorpusItems.length > 0
+      ? inferCorpusRefs(
+          sequenceCorpusItems,
+          data.activite.type,
+          data.activite.titre,
+          seance.objectifs,
+          {
+            consigne: data.activite.consigne,
+            supports: data.activite.supports,
+            existingRefs: resolveActiviteCorpusRefs(activite),
+          }
+        )
+      : resolveActiviteCorpusRefs(activite)
 
     editor.replaceActivite(seanceIndex, activiteIndex, {
       ...data.activite,
       ressources: activite.ressources || [],
-      corpus_ref: newCorpusRef,
-      corpus_status: newCorpusRef
+      corpus_refs: newCorpusRefs,
+      corpus_status: newCorpusRefs.length > 0
         ? 'trouve'
         : (activite.corpus_status ?? data.activite.corpus_status),
       corpus_suggestion: activite.corpus_suggestion,
     })
-  }, [sequence, provider, editor])
+  }, [sequence, provider, editor, corpusById])
 
   if (!sequence) return null
 
@@ -268,6 +339,7 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
             (sequence.corpus_refs ?? []).filter(r => r !== ref),
           )}
           onView={setViewCorpusId}
+          items={corpusItems}
         />
       </div>
 
@@ -382,6 +454,7 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
               theme={sequence.theme}
               refreshKey={refreshKey}
               onViewCorpus={setViewCorpusId}
+              corpusById={corpusById}
             />
           ))}
         </Reorder.Group>
@@ -430,6 +503,7 @@ function SeanceBlock({
   theme,
   refreshKey,
   onViewCorpus,
+  corpusById,
 }: {
   seance: any
   seanceIndex: number
@@ -443,6 +517,7 @@ function SeanceBlock({
   theme: string
   refreshKey: Record<string, number>
   onViewCorpus: (ref: string) => void
+  corpusById: Record<string, CorpusMeta>
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const dragControls = useDragControls()
@@ -556,12 +631,14 @@ function SeanceBlock({
                     onRegenerate={onRegenerate}
                     seanceTitre={seance.titre}
                     seanceNumero={seance.numero}
+                    seanceObjectifs={seance.objectifs}
                     sequenceCorpusRefs={sequenceCorpusRefs}
                     sequenceTitle={sequenceTitle}
                     niveau={niveau}
                     theme={theme}
                     refreshTrigger={refreshKey[activite.id ?? ''] ?? 0}
                     onViewCorpus={onViewCorpus}
+                    corpusById={corpusById}
                   />
                 ))}
               </Reorder.Group>
@@ -573,6 +650,7 @@ function SeanceBlock({
                   duree: 15,
                   consigne: '',
                   ressources: [],
+                  corpus_refs: [],
                 })}
                 className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-gray-700 text-xs text-gray-600 hover:text-primary-400 hover:border-primary-700/50 transition-all"
               >
@@ -599,12 +677,14 @@ function ActiviteBlock({
   onRegenerate,
   seanceTitre,
   seanceNumero,
+  seanceObjectifs,
   sequenceCorpusRefs,
   sequenceTitle,
   niveau,
   theme,
   refreshTrigger,
   onViewCorpus,
+  corpusById,
 }: {
   activite: Activite
   seanceIndex: number
@@ -615,12 +695,14 @@ function ActiviteBlock({
   onRegenerate: (si: number, ai: number, motif: string) => Promise<void>
   seanceTitre: string
   seanceNumero: number
+  seanceObjectifs: string[]
   sequenceCorpusRefs: string[]
   sequenceTitle: string
   niveau: string
   theme: string
   refreshTrigger: number
   onViewCorpus: (ref: string) => void
+  corpusById: Record<string, CorpusMeta>
 }) {
   const [collapsed, setCollapsed] = useState(true)
   const dragControls = useDragControls()
@@ -633,13 +715,11 @@ function ActiviteBlock({
   // Paires de ressources IA chargées depuis la DB
   const [resourcePairs, setResourcePairs] = useState<Array<{ type: string; hasEleve: boolean }>>([])
 
-  // Fix A : Fallback vers le premier texte du corpus de la séquence si l'activité n'en a pas encore.
-  // Permet d'injecter le corpus dans le panneau ResourcePanel même si le lien n'a pas été
-  // établi lors de la génération initiale de la séquence.
-  const effectiveCorpusRef = activite.corpus_ref
-    ?? (CORPUS_ACTIVITE_TYPES.has(activite.type) && sequenceCorpusRefs.length > 0
-      ? sequenceCorpusRefs[0]
-      : undefined)
+  // Infère les liens corpus à partir des supports/consigne si un seul texte est encore stocké.
+  const effectiveCorpusRefs = useMemo(
+    () => computeEffectiveCorpusRefs(activite, sequenceCorpusRefs, corpusById, seanceObjectifs),
+    [activite, sequenceCorpusRefs, corpusById, seanceObjectifs]
+  )
 
   // Charge (ou recharge) les ressources IA pour cette activité
   useEffect(() => {
@@ -800,15 +880,16 @@ function ActiviteBlock({
 
       <CorpusBadge
         status={activite.corpus_status}
-        corpusRef={effectiveCorpusRef}
+        corpusRefs={effectiveCorpusRefs}
         suggestion={activite.corpus_suggestion}
         sequenceCorpusRefs={sequenceCorpusRefs}
         onAssociate={(ref) => editor.replaceActivite(seanceIndex, activiteIndex, {
           ...activite,
-          corpus_ref: ref,
+          corpus_refs: Array.from(new Set([...effectiveCorpusRefs, ref])),
           corpus_status: 'trouve',
         })}
         onView={onViewCorpus}
+        corpusById={corpusById}
       />
 
       {/* ── Zone Ressources IA ── */}
@@ -820,7 +901,7 @@ function ActiviteBlock({
           activiteTitre: activite.titre,
           activiteType: activite.type,
           activiteConsigne: activite.consigne,
-          corpusRef: effectiveCorpusRef,
+          corpusRefs: effectiveCorpusRefs,
         })
 
         if (resourcePairs.length === 0) {
@@ -929,7 +1010,7 @@ function ActiviteBlock({
                         activiteTitre: activite.titre,
                         activiteType: activite.type,
                         activiteConsigne: activite.consigne,
-                        corpusRef: effectiveCorpusRef,
+                        corpusRefs: effectiveCorpusRefs,
                         startInGenerateMode: true,
                       })}
                       className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-md border border-dashed border-blue-800/40 text-[11px] text-blue-500/70 hover:text-blue-400 hover:border-blue-700/60 hover:bg-blue-500/5 transition-all"
@@ -1012,29 +1093,18 @@ function CorpusManager({
   onAdd,
   onRemove,
   onView,
+  items,
 }: {
   corpusRefs: string[]
   onAdd: (ref: string) => void
   onRemove: (ref: string) => void
   onView: (ref: string) => void
+  items: CorpusMeta[]
 }) {
   const [open, setOpen] = useState(false)
-  const [items, setItems] = useState<Array<{ id: string; auteur: string; oeuvre: string; titre: string; has_content: boolean; domaine_public: boolean }>>([])
   const [search, setSearch] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  // Charger les métadonnées dès le montage : les chips affichent auteur/œuvre
-  // (et le statut protégé) sans attendre l'ouverture du picker.
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    fetch('/api/corpus')
-      .then(res => res.json())
-      .then(data => { if (!cancelled) setItems(data.items ?? []) })
-      .catch(() => { /* silencieux */ })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [])
+  // Les métadonnées sont chargées une fois par le parent (SequenceEditor) et
+  // transmises ici → pas de requête en double.
 
   const openPicker = () => setOpen(true)
 
@@ -1134,12 +1204,7 @@ function CorpusManager({
 
                 {/* Liste */}
                 <div className="max-h-64 overflow-y-auto">
-                  {loading ? (
-                    <div className="flex items-center justify-center py-6 text-gray-500 gap-2">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      <span className="text-xs">Chargement…</span>
-                    </div>
-                  ) : filtered.length === 0 ? (
+                  {filtered.length === 0 ? (
                     <p className="text-xs text-gray-600 text-center py-6">Aucun résultat.</p>
                   ) : (
                     filtered.map(item => {
@@ -1212,53 +1277,56 @@ import type { CorpusSuggestion } from '@/shared/schemas'
 
 function CorpusBadge({
   status,
-  corpusRef,
+  corpusRefs,
   suggestion,
   sequenceCorpusRefs,
   onAssociate,
   onView,
+  corpusById,
 }: {
   status?: string
-  corpusRef?: string
+  corpusRefs: string[]
   suggestion?: CorpusSuggestion
   sequenceCorpusRefs: string[]
   onAssociate?: (ref: string) => void
   onView?: (ref: string) => void
+  corpusById: Record<string, CorpusMeta>
 }) {
   const [showPicker, setShowPicker] = useState(false)
 
   if (!status || status === 'non_requis') return null
 
-  // Bouton "Associer" : visible quand un texte manque ET la séquence en a au moins un
-  const associerEl = onAssociate && sequenceCorpusRefs.length > 0 ? (
+  const unlinkedRefs = sequenceCorpusRefs.filter((ref) => !corpusRefs.includes(ref))
+
+  const associerEl = onAssociate && unlinkedRefs.length > 0 ? (
     <div className="relative">
       <button
         onClick={() => {
-          if (sequenceCorpusRefs.length === 1) {
-            onAssociate(sequenceCorpusRefs[0])
+          if (unlinkedRefs.length === 1) {
+            onAssociate(unlinkedRefs[0])
           } else {
             setShowPicker(v => !v)
           }
         }}
         className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-950/50 text-emerald-400 border border-emerald-700/40 hover:bg-emerald-900/40 transition-colors whitespace-nowrap"
         title={
-          sequenceCorpusRefs.length === 1
-            ? `Associer "${sequenceCorpusRefs[0].replace(/-/g, ' ')}"`
+          unlinkedRefs.length === 1
+            ? `Associer « ${corpusLabel(corpusById[unlinkedRefs[0]], unlinkedRefs[0])} »`
             : 'Choisir un texte du corpus à associer'
         }
       >
         <BookOpen className="h-2.5 w-2.5 shrink-0" />
-        {sequenceCorpusRefs.length === 1 ? 'Associer' : 'Associer un texte'}
+        {unlinkedRefs.length === 1 ? 'Associer' : 'Associer un texte'}
       </button>
-      {showPicker && sequenceCorpusRefs.length > 1 && (
+      {showPicker && unlinkedRefs.length > 1 && (
         <div className="absolute left-0 top-full mt-1 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-50 min-w-[13rem] overflow-hidden">
-          {sequenceCorpusRefs.map(ref => (
+          {unlinkedRefs.map(ref => (
             <button
               key={ref}
               onClick={() => { onAssociate(ref); setShowPicker(false) }}
-              className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-800 transition-colors border-b border-gray-800/60 last:border-0 capitalize"
+              className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-gray-800 transition-colors border-b border-gray-800/60 last:border-0"
             >
-              {ref.replace(/-/g, ' ')}
+              {corpusLabel(corpusById[ref], ref)}
             </button>
           ))}
         </div>
@@ -1266,22 +1334,25 @@ function CorpusBadge({
     </div>
   ) : null
 
-  // Texte trouvé : badge cliquable pour lire le texte dans le panneau de lecture
-  if (status === 'trouve' && corpusRef) {
-    const shortLabel = corpusRef.startsWith('ia-')
-      ? 'texte IA'
-      : corpusRef.split('-').slice(0, 2).join(' ')
+  if (status === 'trouve' && corpusRefs.length > 0) {
     return (
-      <div className="mt-2 mb-1">
-        <button
-          onClick={() => onView?.(corpusRef)}
-          className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-950/40 text-emerald-500/80 border border-emerald-800/30 hover:bg-emerald-900/40 hover:text-emerald-300 hover:border-emerald-700/50 transition-colors capitalize"
-          title="Lire le texte"
-        >
-          <BookOpen className="h-2.5 w-2.5 shrink-0" />
-          {shortLabel}
-          <Eye className="h-2.5 w-2.5 shrink-0 opacity-60" />
-        </button>
+      <div className="mt-2 mb-1 flex flex-wrap items-center gap-1.5">
+        {corpusRefs.map((ref) => {
+          const label = corpusLabel(corpusById[ref], ref)
+          return (
+            <button
+              key={ref}
+              onClick={() => onView?.(ref)}
+              className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-950/40 text-emerald-500/80 border border-emerald-800/30 hover:bg-emerald-900/40 hover:text-emerald-300 hover:border-emerald-700/50 transition-colors"
+              title={`Lire le texte : ${label}`}
+            >
+              <BookOpen className="h-2.5 w-2.5 shrink-0" />
+              {label}
+              <Eye className="h-2.5 w-2.5 shrink-0 opacity-60" />
+            </button>
+          )
+        })}
+        {associerEl}
       </div>
     )
   }

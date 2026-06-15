@@ -72,6 +72,7 @@ export async function POST(request: NextRequest) {
       ressourceType,
       ressourceTitre,
       corpus_ref,
+      corpus_refs,
       provider,
       // Contexte pédagogique enrichi (optionnel)
       sequenceProblematique,
@@ -101,12 +102,18 @@ export async function POST(request: NextRequest) {
     }
 
     // Résolution corpus (si fourni)
-    const corpusItem = corpus_ref ? getCorpusById(corpus_ref) : null
+    const refIds: string[] = Array.isArray(corpus_refs) && corpus_refs.length > 0
+      ? corpus_refs
+      : (corpus_ref ? [corpus_ref] : [])
+    const corpusItems = refIds
+      .map((id) => getCorpusById(id))
+      .filter((item): item is NonNullable<ReturnType<typeof getCorpusById>> => item != null)
+    const corpusItem = corpusItems[0] ?? null
 
     // Vérification corpus obligatoire pour extrait_oeuvre
     if (ressourceType === 'extrait_oeuvre' && !corpusItem) {
-      const detail = corpus_ref
-        ? `Texte introuvable dans le corpus (id: ${corpus_ref}). Vérifiez que le texte est bien chargé.`
+      const detail = refIds[0]
+        ? `Texte introuvable dans le corpus (id: ${refIds[0]}). Vérifiez que le texte est bien chargé.`
         : `Le type "extrait_oeuvre" nécessite un texte au programme. Associez un corpus avant de générer.`
       return Response.json({ error: detail }, { status: 422 })
     }
@@ -124,6 +131,7 @@ export async function POST(request: NextRequest) {
       activiteConsigne: activiteConsigne || '',
       ressourceTitre,
       corpusItem,
+      corpusItems,
       // Contexte enrichi — transmis tel quel s'il est présent et bien formé
       sequenceProblematique: typeof sequenceProblematique === 'string' ? sequenceProblematique : undefined,
       sequenceObjectifs: Array.isArray(sequenceObjectifs) ? sequenceObjectifs : undefined,

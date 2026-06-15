@@ -257,64 +257,47 @@ function formatHistory(history: ReactStep[]): string {
   ).join('\n\n')
 }
 
-// === Corpus : types d'activité bénéficiant d'un texte source ===
+import { assignCorpusFromPreselection } from '@/shared/corpus-match'
+import { ACTIVITES_CORPUS } from '@/shared/corpus-match'
 
-const ACTIVITES_CORPUS = new Set(['lecture', 'exercice', 'production_ecrite'])
-
-// Sélectionne le meilleur item corpus depuis une liste pré-sélectionnée
-export function assignCorpusFromPreselection(
-  corpusItems: CorpusItem[],
-  activiteType: string,
-  activiteTitre: string,
-  seanceObjectifs: string[]
-): { corpus_ref: string; corpus_status: 'trouve'; _corpusItem: CorpusItem } | null {
-  if (!ACTIVITES_CORPUS.has(activiteType)) return null
-  if (corpusItems.length === 0) return null
-  if (corpusItems.length === 1) {
-    return { corpus_ref: corpusItems[0].id, corpus_status: 'trouve', _corpusItem: corpusItems[0] }
-  }
-
-  // Scorer chaque item contre le titre + objectifs de l'activité
-  const keywords = [activiteTitre, ...seanceObjectifs]
-    .join(' ')
-    .toLowerCase()
-    .split(/[\s,]+/)
-    .filter((w) => w.length > 3)
-
-  const scored = corpusItems.map((item) => {
-    const score = keywords.filter(
-      (k) =>
-        item.themes.some((t) => t.toLowerCase().includes(k)) ||
-        item.genres.some((g) => g.toLowerCase().includes(k)) ||
-        item.auteur.toLowerCase().includes(k) ||
-        item.oeuvre.toLowerCase().includes(k)
-    ).length
-    return { item, score }
-  })
-
-  const best = scored.sort((a, b) => b.score - a.score)[0]
-  return { corpus_ref: best.item.id, corpus_status: 'trouve', _corpusItem: best.item }
-}
-
+export { assignCorpusFromPreselection }
 
 // Construit le bloc de contexte corpus à injecter dans les prompts de génération de ressources
 export function buildCorpusContextBlock(item: CorpusItem): string {
-  return [
-    '═══════════════════════════════════════════════════════════════',
-    'TEXTE SOURCE — À UTILISER TEL QUEL',
-    '(ne pas modifier, ne pas résumer, ne pas paraphraser)',
-    '',
-    `Auteur    : ${item.auteur}`,
-    `Œuvre     : ${item.oeuvre}`,
-    `Référence : ${item.edition_reference}${item.pages ? `, ${item.pages}` : ''}`,
-    '',
-    item.contenu,
-    '═══════════════════════════════════════════════════════════════',
-    '',
-    'Génère les ressources en te basant EXCLUSIVEMENT sur ce texte.',
-    'Toute citation doit être extraite mot pour mot du texte ci-dessus.',
-    'Indique la référence complète en bas de chaque ressource produite.',
-  ].join('\n')
+  return buildCorpusContextBlocks([item])
+}
+
+export function buildCorpusContextBlocks(items: CorpusItem[]): string {
+  if (items.length === 0) return ''
+  const blocks = items.map((item) =>
+    [
+      '═══════════════════════════════════════════════════════════════',
+      'TEXTE SOURCE — À UTILISER TEL QUEL',
+      '(ne pas modifier, ne pas résumer, ne pas paraphraser)',
+      '',
+      `Auteur    : ${item.auteur}`,
+      `Œuvre     : ${item.oeuvre}`,
+      `Référence : ${item.edition_reference}${item.pages ? `, ${item.pages}` : ''}`,
+      '',
+      item.contenu,
+      '═══════════════════════════════════════════════════════════════',
+    ].join('\n')
+  )
+  const footer =
+    items.length === 1
+      ? [
+          '',
+          'Génère les ressources en te basant EXCLUSIVEMENT sur ce texte.',
+          'Toute citation doit être extraite mot pour mot du texte ci-dessus.',
+          'Indique la référence complète en bas de chaque ressource produite.',
+        ]
+      : [
+          '',
+          `Génère les ressources en te basant EXCLUSIVEMENT sur ces ${items.length} textes.`,
+          'Toute citation doit être extraite mot pour mot des textes ci-dessus.',
+          'Indique la référence complète en bas de chaque ressource produite.',
+        ]
+  return [...blocks, ...footer].join('\n')
 }
 
 async function searchCorpusForActivity(
@@ -323,12 +306,14 @@ async function searchCorpusForActivity(
   niveau: string,
   theme: string,
   objectif: string,
-  llm: LLMProvider
+  llm: LLMProvider,
+  consigne?: string,
+  supports?: string[]
 ): Promise<{
-  corpus_ref?: string
+  corpus_refs?: string[]
   corpus_status: 'non_requis' | 'trouve' | 'manquant' | 'manquant_sans_suggestion'
   corpus_suggestion?: import('@/shared/schemas').CorpusSuggestion
-  _corpusItem?: CorpusItem
+  _corpusItems?: CorpusItem[]
 }> {
   if (!ACTIVITES_CORPUS.has(activiteType)) {
     return { corpus_status: 'non_requis' }
@@ -344,10 +329,20 @@ async function searchCorpusForActivity(
   })
 
   if (results.length > 0) {
+    const refs = assignCorpusFromPreselection(
+      results,
+      activiteType,
+      activiteTitre,
+      [objectif],
+      consigne,
+      supports
+    )
+    const matched = refs?.corpus_refs ?? [results[0].id]
+    const items = results.filter((r) => matched.includes(r.id))
     return {
-      corpus_ref: results[0].id,
+      corpus_refs: matched,
       corpus_status: 'trouve',
-      _corpusItem: results[0],
+      _corpusItems: items.length > 0 ? items : [results[0]],
     }
   }
 
@@ -389,7 +384,7 @@ async function assembleSequence(
 
           // Corpus : pré-sélection prioritaire, sinon recherche autonome (fallback)
           let corpusResult: {
-            corpus_ref?: string
+            corpus_refs?: string[]
             corpus_status: 'non_requis' | 'trouve' | 'manquant' | 'manquant_sans_suggestion'
             corpus_suggestion?: import('@/shared/schemas').CorpusSuggestion
           }
@@ -399,7 +394,9 @@ async function assembleSequence(
               preselectedCorpusItems,
               act.type,
               act.titre,
-              s.objectifs
+              s.objectifs,
+              act.consigne,
+              act.supports
             )
             corpusResult = assigned ?? { corpus_status: 'non_requis' }
           } else {
@@ -409,13 +406,15 @@ async function assembleSequence(
               arch.niveau,
               arch.theme,
               s.objectifs[0] ?? arch.theme,
-              llm
+              llm,
+              act.consigne,
+              act.supports
             )
           }
 
           return {
             ...act,
-            corpus_ref: corpusResult.corpus_ref,
+            corpus_refs: corpusResult.corpus_refs ?? [],
             corpus_status: corpusResult.corpus_status,
             corpus_suggestion: corpusResult.corpus_suggestion,
           }

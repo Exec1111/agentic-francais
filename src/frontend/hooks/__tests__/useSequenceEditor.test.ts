@@ -32,6 +32,7 @@ describe('useSequenceEditor Reducer', () => {
             type: 'lecture',
             duree: 20,
             consigne: 'Relever les champs lexicaux du sentiment.',
+            corpus_refs: [],
             ressources: [
               {
                 id: 'res-act-1',

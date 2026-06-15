@@ -85,8 +85,8 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
 
       for (const activite of seance.activites) {
         db.prepare(`
-          INSERT INTO activites (id, seance_id, titre, type, duree, consigne, supports, differenciation, ressources, corpus_ref, corpus_status, corpus_suggestion)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO activites (id, seance_id, titre, type, duree, consigne, supports, differenciation, ressources, corpus_ref, corpus_refs, corpus_status, corpus_suggestion)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           activite.id || newId(),
           seanceId,
@@ -97,7 +97,8 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
           toJson(activite.supports || []),
           activite.differenciation ?? null,
           toJson(activite.ressources || []),
-          activite.corpus_ref ?? null,
+          activite.corpus_refs?.[0] ?? activite.corpus_ref ?? null,
+          toJson(activite.corpus_refs ?? (activite.corpus_ref ? [activite.corpus_ref] : [])),
           activite.corpus_status ?? null,
           activite.corpus_suggestion ? toJson(activite.corpus_suggestion) : null
         )
@@ -199,6 +200,9 @@ export function getSequenceById(id: string): SequenceWithReview | null {
         supports: fromJson<string[]>(ar.supports),
         differenciation: ar.differenciation ?? undefined,
         ressources: fromJson<Ressource[]>(ar.ressources),
+        corpus_refs: fromJson<string[]>(ar.corpus_refs ?? '[]').length
+          ? fromJson<string[]>(ar.corpus_refs ?? '[]')
+          : (ar.corpus_ref ? [ar.corpus_ref as string] : []),
         corpus_ref: ar.corpus_ref ?? undefined,
         corpus_status: ar.corpus_status ?? undefined,
         corpus_suggestion: ar.corpus_suggestion ? fromJson(ar.corpus_suggestion) : undefined,

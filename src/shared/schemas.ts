@@ -138,7 +138,9 @@ export const ActiviteSchema = z.object({
   supports: z.array(z.string()).optional(),
   differenciation: z.string().optional(),
   ressources: z.array(RessourceSchema).optional().default([]),
+  /** @deprecated Utiliser corpus_refs — conservé pour la rétrocompatibilité à la lecture. */
   corpus_ref: z.string().optional(),
+  corpus_refs: z.array(z.string()).default([]),
   corpus_status: z.enum(['non_requis', 'trouve', 'manquant', 'manquant_sans_suggestion']).optional(),
   corpus_suggestion: CorpusSuggestionSchema.optional(),
 })

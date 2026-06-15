@@ -53,6 +53,7 @@ export async function runGenerator(
         ...a,
         differenciation: a.differenciation ?? undefined,
         ressources: [],
+        corpus_refs: [],
       })),
     })
 

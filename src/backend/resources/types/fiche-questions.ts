@@ -7,6 +7,7 @@ import {
   sanitizeFicheBlocs,
 } from '@/shared/resource-blocks'
 import { buildMessages } from '@/backend/prompts/fiche-questions'
+import { buildCorpusContextBlocks } from '@/backend/workflow-engine'
 
 /**
  * Type de ressource `fiche_questions` — fiche d'exercices structurée en BLOCS.
@@ -34,27 +35,23 @@ export const ficheQuestionsDefinition: ResourceTypeDefinition<FicheQuestionsCont
 
   // ── Prompt de génération (prompts séparés dans src/backend/prompts/fiche-questions.ts) ──
   buildPrompt: (ctx) => {
+    const items = ctx.corpusItems?.length
+      ? ctx.corpusItems
+      : (ctx.corpusItem ? [ctx.corpusItem] : [])
+
     let corpusBlock = ''
-    if (ctx.corpusItem) {
-      if (ctx.corpusItem.contenu) {
-        corpusBlock = `\nTEXTE SOURCE OFFICIEL — les exercices doivent s'appuyer EXCLUSIVEMENT sur ce texte :
+    if (items.length > 0) {
+      corpusBlock = '\n' + buildCorpusContextBlocks(items.filter((item) => item.contenu))
+      const protectedRefs = items.filter((item) => !item.contenu)
+      if (protectedRefs.length > 0) {
+        corpusBlock += protectedRefs.map((item) =>
+          `\nRÉFÉRENCE BIBLIOGRAPHIQUE (texte protégé — non reproduit) :
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Auteur     : ${ctx.corpusItem.auteur}
-Œuvre      : ${ctx.corpusItem.oeuvre}
-Référence  : ${ctx.corpusItem.edition_reference}${ctx.corpusItem.pages ? ` — ${ctx.corpusItem.pages}` : ''}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${ctx.corpusItem.contenu}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ Toute citation dans les exercices doit être extraite MOT POUR MOT de ce texte.`
-      } else {
-        corpusBlock = `\nRÉFÉRENCE BIBLIOGRAPHIQUE (texte protégé — non reproduit ici) :
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Auteur     : ${ctx.corpusItem.auteur}
-Œuvre      : ${ctx.corpusItem.oeuvre}
-Référence  : ${ctx.corpusItem.edition_reference}${ctx.corpusItem.pages ? ` — pages ${ctx.corpusItem.pages}` : ''}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ Le texte intégral n'est pas disponible (droits d'auteur). Les élèves auront le texte en main.
-   Formule les exercices EN RÉFÉRENCE à cette œuvre sans citer d'extraits mot pour mot.`
+Auteur     : ${item.auteur}
+Œuvre      : ${item.oeuvre}
+Référence  : ${item.edition_reference}${item.pages ? ` — pages ${item.pages}` : ''}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
+        ).join('\n')
       }
     }
     return buildMessages(ctx, corpusBlock)
