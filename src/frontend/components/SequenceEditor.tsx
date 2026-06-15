@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion'
 import {
   BookOpen, Target, Award, Clock, FileText, Plus, Trash2, X, Search,
-  ChevronUp, ChevronDown, ChevronRight, Undo2, Redo2, AlertTriangle,
-  RefreshCw, Loader2, Sparkles, User, GraduationCap, Lock, Eye,
+  ChevronRight, Undo2, Redo2, AlertTriangle,
+  RefreshCw, Loader2, Sparkles, User, GraduationCap, Lock, Eye, GripVertical,
 } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import { EditableText } from './EditableText'
@@ -280,9 +280,6 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
           <Target className="h-4 w-4 text-blue-400" />
           <h3 className="text-sm font-semibold text-gray-300">Objectifs</h3>
           <span className="ml-1 text-xs text-gray-600">({sequence.objectifs.length})</span>
-          <div className="ml-auto">
-            {objectifsOpen ? <ChevronUp className="h-4 w-4 text-gray-500" /> : <ChevronDown className="h-4 w-4 text-gray-500" />}
-          </div>
         </button>
         <AnimatePresence>
           {objectifsOpen && (
@@ -316,9 +313,6 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
           <Award className="h-4 w-4 text-emerald-400" />
           <h3 className="text-sm font-semibold text-gray-300">Compétences</h3>
           <span className="ml-1 text-xs text-gray-600">({sequence.competences.length})</span>
-          <div className="ml-auto">
-            {competencesOpen ? <ChevronUp className="h-4 w-4 text-gray-500" /> : <ChevronDown className="h-4 w-4 text-gray-500" />}
-          </div>
         </button>
         <AnimatePresence>
           {competencesOpen && (
@@ -363,23 +357,34 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
           </button>
         </div>
 
-        {sequence.seances.map((seance, si) => (
-          <SeanceBlock
-            key={`seance-${si}-${seance.numero}`}
-            seance={seance}
-            seanceIndex={si}
-            totalSeances={sequence.seances.length}
-            editor={editor}
-            onOpenPanel={openResourcePanel}
-            onRegenerate={handleRegenerateActivite}
-            sequenceCorpusRefs={sequence.corpus_refs ?? []}
-            sequenceTitle={sequence.titre}
-            niveau={sequence.niveau}
-            theme={sequence.theme}
-            refreshKey={refreshKey}
-            onViewCorpus={setViewCorpusId}
-          />
-        ))}
+        <Reorder.Group
+          as="div"
+          axis="y"
+          values={sequence.seances.map((s) => s.id ?? '')}
+          onReorder={(ids: string[]) => {
+            const byId = new Map(sequence.seances.map((s) => [s.id, s]))
+            editor.reorderSeances(ids.map((id) => byId.get(id)!).filter(Boolean))
+          }}
+          className="space-y-4"
+        >
+          {sequence.seances.map((seance, si) => (
+            <SeanceBlock
+              key={seance.id ?? si}
+              seance={seance}
+              seanceIndex={si}
+              totalSeances={sequence.seances.length}
+              editor={editor}
+              onOpenPanel={openResourcePanel}
+              onRegenerate={handleRegenerateActivite}
+              sequenceCorpusRefs={sequence.corpus_refs ?? []}
+              sequenceTitle={sequence.titre}
+              niveau={sequence.niveau}
+              theme={sequence.theme}
+              refreshKey={refreshKey}
+              onViewCorpus={setViewCorpusId}
+            />
+          ))}
+        </Reorder.Group>
       </div>
 
       {/* Évaluation finale */}
@@ -440,64 +445,61 @@ function SeanceBlock({
   onViewCorpus: (ref: string) => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
+  const dragControls = useDragControls()
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: seanceIndex * 0.05 }}
+    <Reorder.Item
+      as="div"
+      value={seance.id ?? ''}
+      dragListener={false}
+      dragControls={dragControls}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
       className="bg-gray-900/50 rounded-xl border border-gray-800 overflow-hidden"
     >
-      {/* Header séance */}
-      <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
-        {/* Drag / reorder */}
-        <div className="flex flex-col gap-0.5 shrink-0">
-          <button
-            onClick={() => seanceIndex > 0 && editor.moveSeance(seanceIndex, seanceIndex - 1)}
-            disabled={seanceIndex === 0}
-            className={cn('p-0.5', seanceIndex > 0 ? 'text-gray-500 hover:text-white' : 'text-gray-800')}
-          >
-            <ChevronUp className="h-3 w-3" />
-          </button>
-          <button
-            onClick={() => seanceIndex < totalSeances - 1 && editor.moveSeance(seanceIndex, seanceIndex + 1)}
-            disabled={seanceIndex >= totalSeances - 1}
-            className={cn('p-0.5', seanceIndex < totalSeances - 1 ? 'text-gray-500 hover:text-white' : 'text-gray-800')}
-          >
-            <ChevronDown className="h-3 w-3" />
-          </button>
-        </div>
+      {/* Header séance — tout l'en-tête plie/déplie (sauf les contrôles internes) */}
+      <div
+        onClick={() => setCollapsed(!collapsed)}
+        className="px-4 py-3 border-b border-gray-800 flex items-center gap-2 cursor-pointer hover:bg-gray-800/20 transition-colors"
+      >
+        {/* Poignée de glissement (réordonner la séance) */}
+        <button
+          onPointerDown={(e) => { e.stopPropagation(); dragControls.start(e) }}
+          onClick={(e) => e.stopPropagation()}
+          className="shrink-0 cursor-grab active:cursor-grabbing text-gray-600 hover:text-gray-300 touch-none transition-colors"
+          title="Glisser pour réordonner la séance"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
 
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-900/50 text-primary-400 text-xs font-bold shrink-0">
           {seance.numero}
         </span>
 
         <div className="flex-1 min-w-0">
-          <EditableText
-            value={seance.titre}
-            onSave={(v) => editor.updateField({ level: 'seance', seanceIndex, field: 'titre' }, v)}
-            className="font-medium text-gray-200"
-          />
+          <span className="inline-block max-w-full" onClick={(e) => e.stopPropagation()}>
+            <EditableText
+              value={seance.titre}
+              onSave={(v) => editor.updateField({ level: 'seance', seanceIndex, field: 'titre' }, v)}
+              className="font-medium text-gray-200"
+            />
+          </span>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
           <div className="flex items-center gap-1 text-xs text-gray-500">
             <Clock className="h-3 w-3" />
-            <EditableText
-              value={String(seance.duree)}
-              onSave={(v) => editor.updateField({ level: 'seance', seanceIndex, field: 'duree' }, Number(v) || 55)}
-              className="text-xs text-gray-500 w-8 text-center"
-            />
+            <span onClick={(e) => e.stopPropagation()}>
+              <EditableText
+                value={String(seance.duree)}
+                onSave={(v) => editor.updateField({ level: 'seance', seanceIndex, field: 'duree' }, Number(v) || 55)}
+                className="text-xs text-gray-500 w-8 text-center"
+              />
+            </span>
             <span>min</span>
           </div>
           <button
-            onClick={() => setCollapsed(!collapsed)}
-            className="p-1 text-gray-600 hover:text-gray-300"
-          >
-            {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-          </button>
-          <button
-            onClick={() => editor.removeSeance(seanceIndex)}
+            onClick={(e) => { e.stopPropagation(); editor.removeSeance(seanceIndex) }}
             className="p-1 text-gray-700 hover:text-red-400 transition-colors"
             title="Supprimer la séance"
           >
@@ -532,26 +534,37 @@ function SeanceBlock({
             <div className="p-4 space-y-3">
               <span className="text-xs text-gray-600 uppercase font-semibold">Activités</span>
 
-              {seance.activites.map((activite: Activite, ai: number) => (
-                <ActiviteBlock
-                  key={`act-${seanceIndex}-${ai}`}
-                  activite={activite}
-                  seanceIndex={seanceIndex}
-                  activiteIndex={ai}
-                  totalActivites={seance.activites.length}
-                  editor={editor}
-                  onOpenPanel={onOpenPanel}
-                  onRegenerate={onRegenerate}
-                  seanceTitre={seance.titre}
-                  seanceNumero={seance.numero}
-                  sequenceCorpusRefs={sequenceCorpusRefs}
-                  sequenceTitle={sequenceTitle}
-                  niveau={niveau}
-                  theme={theme}
-                  refreshTrigger={refreshKey[activite.id ?? ''] ?? 0}
-                  onViewCorpus={onViewCorpus}
-                />
-              ))}
+              <Reorder.Group
+                as="div"
+                axis="y"
+                values={seance.activites.map((a: Activite) => a.id ?? '')}
+                onReorder={(ids: string[]) => {
+                  const byId = new Map(seance.activites.map((a: Activite) => [a.id, a]))
+                  editor.reorderActivites(seanceIndex, ids.map((id) => byId.get(id)!).filter(Boolean) as Activite[])
+                }}
+                className="space-y-3"
+              >
+                {seance.activites.map((activite: Activite, ai: number) => (
+                  <ActiviteBlock
+                    key={activite.id ?? ai}
+                    activite={activite}
+                    seanceIndex={seanceIndex}
+                    activiteIndex={ai}
+                    totalActivites={seance.activites.length}
+                    editor={editor}
+                    onOpenPanel={onOpenPanel}
+                    onRegenerate={onRegenerate}
+                    seanceTitre={seance.titre}
+                    seanceNumero={seance.numero}
+                    sequenceCorpusRefs={sequenceCorpusRefs}
+                    sequenceTitle={sequenceTitle}
+                    niveau={niveau}
+                    theme={theme}
+                    refreshTrigger={refreshKey[activite.id ?? ''] ?? 0}
+                    onViewCorpus={onViewCorpus}
+                  />
+                ))}
+              </Reorder.Group>
 
               <button
                 onClick={() => editor.addActivite(seanceIndex, {
@@ -570,7 +583,7 @@ function SeanceBlock({
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.div>
+    </Reorder.Item>
   )
 }
 
@@ -610,6 +623,7 @@ function ActiviteBlock({
   onViewCorpus: (ref: string) => void
 }) {
   const [collapsed, setCollapsed] = useState(true)
+  const dragControls = useDragControls()
   const [isRejecting, setIsRejecting] = useState(false)
   const [motif, setMotif] = useState('')
   const [isRegenerating, setIsRegenerating] = useState(false)
@@ -668,47 +682,49 @@ function ActiviteBlock({
   }
 
   return (
-    <div
+    <Reorder.Item
+      as="div"
+      value={activite.id ?? ''}
+      dragListener={false}
+      dragControls={dragControls}
       className={cn(
         'rounded-lg border group',
         TYPE_COLORS[activite.type] || 'bg-gray-800/50 text-gray-300 border-gray-700',
         isRegenerating && 'opacity-60 pointer-events-none',
       )}
     >
-      {/* Header — toujours visible */}
-      <div className="flex items-center justify-between px-3 py-2">
+      {/* Header — tout l'en-tête plie/déplie (sauf les contrôles internes) */}
+      <div
+        onClick={() => setCollapsed((v) => !v)}
+        className="flex items-center justify-between px-3 py-2 cursor-pointer"
+      >
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          {/* Move up/down */}
-          <div className="flex flex-col gap-0 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              onClick={() => activiteIndex > 0 && editor.moveActivite(seanceIndex, activiteIndex, activiteIndex - 1)}
-              disabled={activiteIndex === 0}
-              className={cn('p-0', activiteIndex > 0 ? 'hover:text-white' : 'text-transparent')}
-            >
-              <ChevronUp className="h-3 w-3" />
-            </button>
-            <button
-              onClick={() => activiteIndex < totalActivites - 1 && editor.moveActivite(seanceIndex, activiteIndex, activiteIndex + 1)}
-              disabled={activiteIndex >= totalActivites - 1}
-              className={cn('p-0', activiteIndex < totalActivites - 1 ? 'hover:text-white' : 'text-transparent')}
-            >
-              <ChevronDown className="h-3 w-3" />
-            </button>
-          </div>
+          {/* Poignée de glissement (réordonner l'activité) */}
+          <button
+            onPointerDown={(e) => { e.stopPropagation(); dragControls.start(e) }}
+            onClick={(e) => e.stopPropagation()}
+            className="shrink-0 cursor-grab active:cursor-grabbing text-gray-500 hover:text-white opacity-0 group-hover:opacity-100 touch-none transition-opacity"
+            title="Glisser pour réordonner l'activité"
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
 
           {isRegenerating
             ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
             : <FileText className="h-3.5 w-3.5 shrink-0" />
           }
-          <EditableText
-            value={activite.titre}
-            onSave={(v) => editor.updateField({ level: 'activite', seanceIndex, activiteIndex, field: 'titre' }, v)}
-            className="text-sm font-medium"
-          />
+          <span className="min-w-0" onClick={(e) => e.stopPropagation()}>
+            <EditableText
+              value={activite.titre}
+              onSave={(v) => editor.updateField({ level: 'activite', seanceIndex, activiteIndex, field: 'titre' }, v)}
+              className="text-sm font-medium"
+            />
+          </span>
         </div>
         <div className="flex items-center gap-2 text-xs opacity-70 shrink-0">
           <select
             value={activite.type}
+            onClick={(e) => e.stopPropagation()}
             onChange={(e) => editor.updateField({ level: 'activite', seanceIndex, activiteIndex, field: 'type' }, e.target.value)}
             className="bg-transparent border-none text-xs capitalize cursor-pointer focus:outline-none hover:opacity-100"
           >
@@ -717,15 +733,17 @@ function ActiviteBlock({
             ))}
           </select>
           <span>•</span>
-          <EditableText
-            value={String(activite.duree)}
-            onSave={(v) => editor.updateField({ level: 'activite', seanceIndex, activiteIndex, field: 'duree' }, Number(v) || 15)}
-            className="text-xs w-6 text-center"
-          />
+          <span onClick={(e) => e.stopPropagation()}>
+            <EditableText
+              value={String(activite.duree)}
+              onSave={(v) => editor.updateField({ level: 'activite', seanceIndex, activiteIndex, field: 'duree' }, Number(v) || 15)}
+              className="text-xs w-6 text-center"
+            />
+          </span>
           <span>min</span>
           {/* Rejeter & régénérer */}
           <button
-            onClick={toggleReject}
+            onClick={(e) => { e.stopPropagation(); toggleReject() }}
             className={cn(
               'p-0.5 transition-all',
               isRejecting
@@ -737,18 +755,11 @@ function ActiviteBlock({
             <RefreshCw className="h-3 w-3" />
           </button>
           <button
-            onClick={() => editor.removeActivite(seanceIndex, activiteIndex)}
+            onClick={(e) => { e.stopPropagation(); editor.removeActivite(seanceIndex, activiteIndex) }}
             className="p-0.5 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
             title="Supprimer"
           >
             <Trash2 className="h-3 w-3" />
-          </button>
-          {/* Toggle collapse */}
-          <button
-            onClick={() => setCollapsed((v) => !v)}
-            className="p-0.5 opacity-60 hover:opacity-100 transition-opacity"
-          >
-            {collapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
           </button>
         </div>
       </div>
@@ -842,8 +853,11 @@ function ActiviteBlock({
 
         return (
           <div className="mt-2 rounded-lg border border-blue-600/40 bg-blue-500/5 overflow-hidden">
-            {/* En-tête accordéon */}
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5">
+            {/* En-tête accordéon — tout l'en-tête plie/déplie (sauf « Gérer / Ajouter ») */}
+            <div
+              onClick={() => setIsResourcesOpen(v => !v)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 cursor-pointer hover:bg-blue-500/10 transition-colors"
+            >
               <Sparkles className="h-3 w-3 text-blue-400 shrink-0" />
               <span className="text-xs font-semibold text-blue-300">Ressources IA</span>
               {/* Chips types (max 3) */}
@@ -860,20 +874,10 @@ function ActiviteBlock({
                   <span className="text-[10px] text-gray-500">+{resourcePairs.length - 3}</span>
                 )}
               </div>
-              {/* Expand / collapse */}
-              <button
-                onClick={() => setIsResourcesOpen(v => !v)}
-                className="p-0.5 text-gray-500 hover:text-blue-300 transition-colors shrink-0"
-                title={isResourcesOpen ? 'Réduire' : 'Voir le détail'}
-              >
-                {isResourcesOpen
-                  ? <ChevronUp className="h-3.5 w-3.5" />
-                  : <ChevronDown className="h-3.5 w-3.5" />}
-              </button>
               {/* Ouvrir panel */}
               <button
-                onClick={openPanel}
-                className="text-[10px] text-blue-400 hover:text-blue-200 font-semibold px-2 py-0.5 rounded border border-blue-700/40 hover:border-blue-500/60 hover:bg-blue-500/10 transition-all shrink-0"
+                onClick={(e) => { e.stopPropagation(); openPanel() }}
+                className="ml-auto text-[10px] text-blue-400 hover:text-blue-200 font-semibold px-2 py-0.5 rounded border border-blue-700/40 hover:border-blue-500/60 hover:bg-blue-500/10 transition-all shrink-0"
               >
                 Gérer / Ajouter
               </button>
@@ -997,7 +1001,7 @@ function ActiviteBlock({
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </Reorder.Item>
   )
 }
 
