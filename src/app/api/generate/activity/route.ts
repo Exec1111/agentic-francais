@@ -26,10 +26,12 @@ const RequestSchema = z.object({
     type: z.string(),
     duree: z.number(),
     consigne: z.string().optional(),
-  }),
+  }).optional(),
   motif: z.string().optional(),
   provider: z.string().optional(),
   corpus_refs: z.array(z.string()).optional(),
+  // 'remplacer' (défaut) régénère activiteActuelle ; 'ajouter' crée une activité.
+  mode: z.enum(['remplacer', 'ajouter']).optional(),
 })
 
 // Tous les champs sont required (OpenAI structured outputs interdit les champs optional)
@@ -56,7 +58,12 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Paramètres invalides', details: parsed.error.issues }, { status: 400 })
   }
 
-  const { seanceContext, activiteActuelle, motif, provider, corpus_refs } = parsed.data
+  const { seanceContext, activiteActuelle, motif, provider, corpus_refs, mode } = parsed.data
+
+  if (mode !== 'ajouter' && !activiteActuelle) {
+    return Response.json({ error: 'activiteActuelle requis en mode remplacer' }, { status: 400 })
+  }
+
   const llm = createLLMProvider(provider)
 
   const corpusBlock = (corpus_refs ?? [])
@@ -67,7 +74,7 @@ export async function POST(request: NextRequest) {
     )
     .join('\n\n')
 
-  const userPrompt = buildUserPrompt(seanceContext, activiteActuelle, motif, corpusBlock)
+  const userPrompt = buildUserPrompt(seanceContext, activiteActuelle, motif, corpusBlock, mode ?? 'remplacer')
 
   try {
     const messages = [

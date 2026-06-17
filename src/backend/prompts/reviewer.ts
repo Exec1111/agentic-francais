@@ -3,7 +3,7 @@
  * Rôle : analyser une séquence complète et produire une critique constructive avec score.
  */
 
-import type { Sequence } from '@/shared/schemas'
+import type { Sequence, Review } from '@/shared/schemas'
 
 export const SYSTEM_PROMPT = `Tu es l'Agent Reviewer Qualité d'une plateforme de conception de cours de français.
 
@@ -33,16 +33,90 @@ RÈGLES :
 - Un score sous 60 signifie des problèmes majeurs.
 - Ne modifie JAMAIS directement les contenus.
 
+RÈGLES DE STABILITÉ (essentielles) :
+- N'INVENTE PAS de problèmes. Si la séquence est de bonne qualité, renvoie une liste "problemes" VIDE et un score élevé. Une préférence de style n'est PAS un problème.
+- Sois COHÉRENT d'une analyse à l'autre : à séquence équivalente, le score doit rester stable. Ne fais pas varier la note pour des raisons cosmétiques.
+- CONVERGENCE — le champ racine "suggestions" (améliorations générales) doit pouvoir se VIDER :
+  • Si tu ne détectes AUCUN problème, la séquence est VALIDÉE : renvoie "suggestions" VIDE ([]). NE CHERCHE PAS « une amélioration de plus ».
+  • On peut toujours embellir un cours à l'infini ; ce n'est PAS ton rôle. Ne propose une amélioration générale QUE si son absence est une réelle faiblesse — jamais par habitude ni pour remplir.
+
 FORMAT DE SORTIE OBLIGATOIRE :
 Tu DOIS répondre UNIQUEMENT avec un objet JSON valide. Pas de texte, pas de markdown, pas d'explication.
 Le JSON doit contenir exactement ces champs :
 - "score_qualite": nombre entre 0 et 100
-- "problemes": tableau d'objets {"type": "...", "description": "...", "seance_concernee": number|null}
-- "suggestions": tableau de strings
-- "resume": string (synthèse en 2-3 phrases)`
+- "problemes": tableau d'objets {"type": "...", "description": "...", "seance_concernee": number|null, "suggestions": [ ... ]}
+    → Chaque problème porte SES PROPRES suggestions de correction (0, 1 ou plusieurs), dans son champ "suggestions".
+    → Ces suggestions doivent corriger CE problème précis.
+- "suggestions": tableau d'objets ACTIONNABLES d'AMÉLIORATION GÉNÉRALE, non rattachés à un problème détecté (peut être vide).
+- "resume": string (synthèse en 2-3 phrases)
 
-export function buildUserPrompt(sequence: Sequence): string {
-  return `Analyse cette séquence pédagogique complète :
+CHAQUE SUGGESTION (qu'elle soit dans "problemes[].suggestions" ou dans le "suggestions" racine) est un objet :
+{
+  "instruction": "directive claire et autosuffisante décrivant la modification à effectuer. Elle sera transmise telle quelle à l'agent qui appliquera le correctif, donc sois explicite et concret.",
+  "action": une valeur parmi :
+      • "remplacer_activite"  → remplacer une activité existante par une meilleure
+      • "ajouter_activite"    → ajouter une nouvelle activité dans une séance
+      • "supprimer_activite"  → retirer une activité redondante ou inadaptée
+      • "modifier_consigne"   → réécrire UNIQUEMENT la consigne d'une activité existante
+      • "modifier_objectifs"  → réécrire les objectifs d'une séance
+      • "aucune"              → conseil général non rattaché à une modification précise,
+  "seance_numero": le numéro (champ "numero") de la séance concernée, ou null si la suggestion concerne la séquence entière,
+  "activite_titre": le TITRE EXACT de l'activité existante visée, recopié MOT POUR MOT depuis la séquence, ou null si l'action porte sur la séance entière ou crée une nouvelle activité
+}
+
+RÈGLES POUR LES SUGGESTIONS :
+- Le couple (seance_numero, activite_titre) doit pointer vers un élément qui EXISTE réellement dans la séquence.
+- Exception : pour "ajouter_activite", "activite_titre" est null (l'activité n'existe pas encore).
+- Pour "modifier_objectifs", "activite_titre" est null (l'action porte sur la séance).
+- Ne reformule JAMAIS "activite_titre" : copie-le à l'identique, sinon le correctif ne trouvera pas sa cible.
+- Choisis "aucune" (avec seance_numero/activite_titre éventuellement null) si la suggestion est trop transversale pour viser un endroit précis.
+
+RÈGLES DE RATTACHEMENT :
+- Chaque problème détecté DOIT proposer au moins une suggestion de correction dans son champ "suggestions" (privilégie des actions concrètes : remplacer, modifier, supprimer, ajouter).
+- Ne mets dans le "suggestions" racine QUE des améliorations qui ne corrigent aucun problème listé (idées de bonification).
+- Ne duplique pas une même suggestion à la fois sous un problème et dans le tableau racine.`
+
+export function buildUserPrompt(sequence: Sequence, previousReview?: Review | null): string {
+  const base = `Analyse cette séquence pédagogique complète :
 
 ${JSON.stringify(sequence, null, 2)}`
+
+  if (!previousReview) return base
+
+  // Relecture incrémentale : on fournit l'analyse précédente pour ancrer le score
+  // et éviter l'effet « tourne en rond » (nouveaux problèmes inventés à chaque run).
+  const anciensProblemes = previousReview.problemes.length
+    ? previousReview.problemes
+        .map((p) => `- [${p.type}]${p.seance_concernee ? ` (séance ${p.seance_concernee})` : ''} ${p.description}`)
+        .join('\n')
+    : '(aucun problème signalé précédemment)'
+
+  // Toutes les suggestions déjà proposées (générales + rattachées aux problèmes)
+  const anciennesSuggestions = [
+    ...previousReview.suggestions,
+    ...previousReview.problemes.flatMap((p) => p.suggestions ?? []),
+  ]
+  const anciennesSuggestionsTxt = anciennesSuggestions.length
+    ? anciennesSuggestions.map((s) => `- ${s.instruction}`).join('\n')
+    : '(aucune)'
+
+  return `${base}
+
+━━━ ANALYSE PRÉCÉDENTE (à prendre comme référence) ━━━
+Score précédent : ${previousReview.score_qualite}/100
+Problèmes signalés précédemment :
+${anciensProblemes}
+Améliorations DÉJÀ proposées auparavant (NE PAS les re-proposer) :
+${anciennesSuggestionsTxt}
+
+CONSIGNES DE RELECTURE INCRÉMENTALE :
+1. Pars du score précédent (${previousReview.score_qualite}) comme ANCRE.
+2. Pour chaque problème précédent : vérifie dans la séquence ACTUELLE s'il est résolu.
+   - S'il est résolu : ne le re-signale pas, et le score doit MONTER ou rester stable.
+   - S'il persiste : re-signale-le à l'identique.
+3. N'ajoute un NOUVEAU problème que s'il est réel et important (pas une préférence de style).
+4. NE BAISSE le score QUE si tu constates une RÉGRESSION concrète (un élément correct est devenu incorrect). Décris alors cette régression comme un problème.
+5. Corriger un problème listé ne doit JAMAIS faire baisser la note.
+6. CONVERGENCE : ne re-propose AUCUNE amélioration déjà listée ci-dessus. Ne propose pas non plus de nouvelle amélioration « cosmétique ».
+7. Si tu ne détectes aucun problème, renvoie "problemes" ET "suggestions" VIDES : la séquence est validée, l'analyse doit se STABILISER (ne rien proposer de plus).`
 }

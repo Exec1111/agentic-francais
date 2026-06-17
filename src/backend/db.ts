@@ -183,6 +183,14 @@ const MIGRATIONS: Migration[] = [
         WHERE corpus_ref IS NOT NULL AND corpus_ref != '';
     `,
   },
+  {
+    version: 6,
+    name: 'suggestions_on_review_problemes',
+    sql: `
+      -- Suggestions de correction rattachées à chaque problème (JSON, format actionnable).
+      ALTER TABLE review_problemes ADD COLUMN suggestions TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
 ]
 
 function runMigrations(db: Database.Database) {

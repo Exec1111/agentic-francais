@@ -173,14 +173,47 @@ export const SequenceSchema = z.object({
   updatedAt: z.string().optional(),
 })
 
+// Actions qu'un correctif au clic peut appliquer. Chaque valeur correspond à une
+// capacité de l'éditeur (useSequenceEditor) :
+//  - remplacer_activite  → /api/generate/activity (LLM) puis replaceActivite
+//  - ajouter_activite     → /api/generate/activity en mode "ajouter" puis addActivite
+//  - supprimer_activite   → removeActivite (sans LLM)
+//  - modifier_consigne    → /api/generate/field (LLM, champ ciblé) puis updateField
+//  - modifier_objectifs   → /api/generate/field (LLM, champ ciblé) puis updateField
+//  - aucune               → conseil transversal, non rattaché à une mutation précise
+export const SuggestionActionSchema = z.enum([
+  'remplacer_activite',
+  'ajouter_activite',
+  'supprimer_activite',
+  'modifier_consigne',
+  'modifier_objectifs',
+  'aucune',
+])
+
+// Suggestion structurée et actionnable produite par le reviewer.
+// La cible est exprimée par identifiants HUMAIN-STABLES (numéro de séance + titre
+// exact d'activité), résolus en index au moment de l'application côté éditeur.
+// nullable (et non optional) : exigé par les Structured Outputs OpenAI.
+export const ActionableSuggestionSchema = z.object({
+  instruction: z.string(),
+  action: SuggestionActionSchema,
+  seance_numero: z.number().nullable(),
+  activite_titre: z.string().nullable(),
+})
+
+// Un problème détecté, accompagné des suggestions qui le corrigent (0..N).
+export const ProblemeSchema = z.object({
+  type: z.enum(['incoherence', 'surcharge', 'repetition', 'objectif_non_couvert', 'progressivite', 'activite_inadaptee']),
+  description: z.string(),
+  seance_concernee: z.number().nullable(),
+  suggestions: z.array(ActionableSuggestionSchema),
+})
+
 export const ReviewSchema = z.object({
   score_qualite: z.number().min(0).max(100),
-  problemes: z.array(z.object({
-    type: z.enum(['incoherence', 'surcharge', 'repetition', 'objectif_non_couvert', 'progressivite', 'activite_inadaptee']),
-    description: z.string(),
-    seance_concernee: z.number().nullable(),
-  })),
-  suggestions: z.array(z.string()),
+  problemes: z.array(ProblemeSchema),
+  // Suggestions d'amélioration GÉNÉRALES, non rattachées à un problème détecté.
+  suggestions: z.array(ActionableSuggestionSchema),
   resume: z.string(),
 })
 
@@ -242,6 +275,9 @@ export type Activite = z.infer<typeof ActiviteSchema>
 export type Seance = z.infer<typeof SeanceSchema>
 export type Sequence = z.infer<typeof SequenceSchema>
 export type Review = z.infer<typeof ReviewSchema>
+export type SuggestionAction = z.infer<typeof SuggestionActionSchema>
+export type ActionableSuggestion = z.infer<typeof ActionableSuggestionSchema>
+export type Probleme = z.infer<typeof ProblemeSchema>
 export type OrchestratorOutput = z.infer<typeof OrchestratorOutputSchema>
 export type ArchitectOutput = z.infer<typeof ArchitectOutputSchema>
 export type ReactDecision = z.infer<typeof ReactDecisionSchema>

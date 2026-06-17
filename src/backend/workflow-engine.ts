@@ -187,7 +187,8 @@ export async function* runWorkflow(
             yield { type: 'agent_log', agent: 'reviewer', message: log }
           }
 
-          observation = `Score qualité: ${review.score_qualite}/100 — ${review.problemes.length} problème(s) — ${review.suggestions.length} suggestion(s)`
+          const totalSuggestions = review.suggestions.length + review.problemes.reduce((n, p) => n + (p.suggestions?.length ?? 0), 0)
+          observation = `Score qualité: ${review.score_qualite}/100 — ${review.problemes.length} problème(s) — ${totalSuggestions} suggestion(s)`
           yield { type: 'agent_done', agent: 'reviewer', output: review }
 
           // Conserver le meilleur essai

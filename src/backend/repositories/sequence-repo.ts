@@ -1,5 +1,27 @@
 import { getDb, newId, now, toJson, fromJson } from '@/backend/db'
-import type { Sequence, Review, Seance, Activite, Ressource } from '@/shared/schemas'
+import type { Sequence, Review, Seance, Activite, Ressource, ActionableSuggestion, SuggestionAction } from '@/shared/schemas'
+
+/**
+ * Normalise les suggestions stockées en base vers le format actionnable.
+ * Rétrocompatibilité : les reviews enregistrées avant la refonte stockaient
+ * des suggestions en texte libre (string[]). On les convertit en suggestions
+ * non rattachées à une mutation (action "aucune").
+ */
+function normalizeSuggestions(raw: unknown): ActionableSuggestion[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((s): ActionableSuggestion => {
+    if (typeof s === 'string') {
+      return { instruction: s, action: 'aucune', seance_numero: null, activite_titre: null }
+    }
+    const obj = (s ?? {}) as Record<string, unknown>
+    return {
+      instruction: String(obj.instruction ?? ''),
+      action: (obj.action as SuggestionAction) ?? 'aucune',
+      seance_numero: typeof obj.seance_numero === 'number' ? obj.seance_numero : null,
+      activite_titre: typeof obj.activite_titre === 'string' ? obj.activite_titre : null,
+    }
+  })
+}
 
 // === Types de retour simplifiés ===
 
@@ -134,14 +156,15 @@ function saveReviewTx(db: ReturnType<typeof getDb>, sequenceId: string, review: 
 
   for (const probleme of review.problemes) {
     db.prepare(`
-      INSERT INTO review_problemes (id, review_id, type, description, seance_concernee)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO review_problemes (id, review_id, type, description, seance_concernee, suggestions)
+      VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       newId(),
       reviewId,
       probleme.type,
       probleme.description,
-      probleme.seance_concernee ?? null
+      probleme.seance_concernee ?? null,
+      toJson(probleme.suggestions ?? [])
     )
   }
 }
@@ -227,11 +250,12 @@ function loadReview(db: ReturnType<typeof getDb>, sequenceId: string): Review | 
   return {
     score_qualite: rRow.score_qualite,
     resume: rRow.resume,
-    suggestions: fromJson<string[]>(rRow.suggestions),
+    suggestions: normalizeSuggestions(fromJson<unknown[]>(rRow.suggestions)),
     problemes: problemeRows.map((p) => ({
       type: p.type as Review['problemes'][number]['type'],
       description: p.description,
-      seance_concernee: p.seance_concernee ?? undefined,
+      seance_concernee: p.seance_concernee ?? null,
+      suggestions: normalizeSuggestions(fromJson<unknown[]>(p.suggestions ?? '[]')),
     })),
   }
 }

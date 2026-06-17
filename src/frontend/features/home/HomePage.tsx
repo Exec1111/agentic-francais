@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Sparkles, Download, Terminal, Save, Bot } from 'lucide-react'
+import { Sparkles, Download, Terminal, Save, Bot, ShieldCheck } from 'lucide-react'
 import { WorkflowProgress } from '@/frontend/components/WorkflowPipeline'
 import { SequenceEditor } from '@/frontend/components/SequenceEditor'
 import { ReviewPanel } from '@/frontend/components/ReviewPanel'
@@ -44,6 +44,7 @@ export default function HomePage() {
   const [progress, setProgress] = useState<WorkflowProgress | null>(null)
   const editor = useSequenceEditor()
   const [review, setReview] = useState<any>(null)
+  const [reviewing, setReviewing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
   const [showPipeline, setShowPipeline] = useState(false)
@@ -221,6 +222,28 @@ export default function HomePage() {
     await store.save(editor.sequence, review)
   }, [editor.sequence, review, store])
 
+  // Relance le Reviewer sur la séquence courante (y compris après édition).
+  // Produit une review au format structuré → correctifs au clic disponibles.
+  const handleRunReview = useCallback(async () => {
+    if (!editor.sequence || reviewing) return
+    setReviewing(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sequence: editor.sequence, provider, previousReview: review }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erreur serveur')
+      setReview(data.review)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur inconnue')
+    } finally {
+      setReviewing(false)
+    }
+  }, [editor.sequence, provider, reviewing, review])
+
   const handleLoad = useCallback(async (id: string) => {
     const result = await store.load(id)
     if (result) {
@@ -333,7 +356,13 @@ export default function HomePage() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                 >
-                  <ReviewPanel review={review} />
+                  <ReviewPanel
+                    review={review}
+                    editor={editor}
+                    provider={provider}
+                    onRerun={handleRunReview}
+                    rerunning={reviewing}
+                  />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -348,6 +377,16 @@ export default function HomePage() {
                 >
                   {/* Boutons sauvegarde et export */}
                   <div className="flex justify-end gap-2">
+                    {!review && (
+                      <button
+                        onClick={handleRunReview}
+                        disabled={reviewing}
+                        className="flex items-center gap-2 px-4 py-2 bg-amber-900/40 border border-amber-700/50 hover:bg-amber-800/50 text-amber-200 rounded-lg text-sm transition-all disabled:opacity-50"
+                      >
+                        <ShieldCheck className="h-4 w-4" />
+                        {reviewing ? 'Analyse…' : 'Relecture qualité'}
+                      </button>
+                    )}
                     <button
                       onClick={handleSave}
                       disabled={store.loading}
