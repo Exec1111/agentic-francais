@@ -344,10 +344,8 @@ Les 5 premiers (🟦) sont de la famille « document par blocs » ; `extrait_oeu
 `fiche_lecture`, `grille_evaluation`, `carte_mentale` et `dictee` (🟧) sont de la famille « schéma
 dédié » (rendu Markdown sur-mesure, édition via le Markdown brut, pas d'éditeur de blocs).
 
-> Note : `src/shared/resource-schemas.ts` contient encore d'anciens schémas bespoke
-> (`CoursContenuSchema`, `BilanContenuSchema`, `FicheMethodeContenuSchema`) issus de
-> l'intention de conception initiale. Ils sont **inutilisés** : `cours`, `bilan` et
-> `fiche_methode` reposent sur la famille « blocs » (`resource-blocks-*.ts`). À nettoyer.
+> Les schémas de `src/shared/resource-schemas.ts` ne couvrent plus que la famille « schéma dédié ».
+> Les types `cours`, `bilan` et `fiche_methode` reposent sur la famille « blocs » (`resource-blocks-*.ts`).
 
 ---
 

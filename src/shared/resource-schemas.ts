@@ -9,33 +9,6 @@
  */
 
 import { z } from 'zod'
-import { ExerciceFormatSchema } from './schemas'
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// EXERCICE
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export const ExerciceItemSchema = z.object({
-  enonce: z.string().describe("Énoncé ou question de l'item"),
-  contenu_eleve: z.string().describe('Ce que voit l\'élève : texte avec [__________], propositions, etc.'),
-  correction: z.string().nullable().describe('PROF ONLY — réponse correcte complète'),
-  justification: z.string().nullable().describe('PROF ONLY — note pédagogique sur la règle ou le raisonnement'),
-  difficulte: z.enum(['facile', 'moyen', 'difficile']),
-})
-
-export const ExerciceContenuSchema = z.object({
-  format: ExerciceFormatSchema,
-  objectif: z.string().describe('Compétence visée, ex: "Identifier les pronoms relatifs"'),
-  consigne_generale: z.string().describe('Consigne adressée à l\'élève'),
-  introduction: z.string().nullable().describe('Mise en contexte optionnelle, null si inutile'),
-  items: z.array(ExerciceItemSchema).min(2).max(12),
-  mot_banque: z.array(z.string()).nullable().describe('Boîte à mots pour texte_a_trous, null pour les autres formats'),
-  conseil_correction: z.string().nullable().describe('PROF ONLY — conseils pour la correction en classe'),
-  duree_estimee: z.number().nullable().describe('Durée estimée en minutes'),
-})
-
-export type ExerciceContenu = z.infer<typeof ExerciceContenuSchema>
-export type ExerciceItem = z.infer<typeof ExerciceItemSchema>
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXTRAIT D'ŒUVRE
@@ -91,59 +64,6 @@ export const OeuvreCompleteContenuSchema = z.object({
 export type OeuvreCompleteContenu = z.infer<typeof OeuvreCompleteContenuSchema>
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// COURS
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export const CoursSectionSchema = z.object({
-  titre: z.string(),
-  contenu: z.string().describe('Corps de la section (Markdown : listes, gras, blocs OK)'),
-  definition: z.object({
-    terme: z.string(),
-    definition: z.string(),
-  }).nullable().describe('Définition encadrée si la section introduit un terme clé, null sinon'),
-  a_retenir: z.string().nullable().describe('Phrase ou formule à mémoriser absolument'),
-  note_prof: z.string().nullable().describe('PROF ONLY — erreurs fréquentes, anecdotes, timing'),
-})
-
-export const CoursContenuSchema = z.object({
-  objectif: z.string(),
-  sections: z.array(CoursSectionSchema).min(1).max(8),
-  lexique: z.array(z.object({
-    terme: z.string(),
-    definition: z.string(),
-  })).nullable().describe('Mini-lexique final, null si pas nécessaire'),
-  note_prof_globale: z.string().nullable().describe('PROF ONLY — comment utiliser ce cours, durée, prérequis'),
-})
-
-export type CoursContenu = z.infer<typeof CoursContenuSchema>
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// BILAN
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export const BilanCheckItemSchema = z.object({
-  competence: z.string().describe('Formulation "Je sais..." ou "Je suis capable de..."'),
-  reponse_correcte: z.string().nullable().describe('PROF ONLY — exemple de réalisation correcte / critères'),
-  remediation: z.string().nullable().describe('PROF ONLY — activité ou ressource de remédiation suggérée'),
-})
-
-export const BilanContenuSchema = z.object({
-  objectif: z.string(),
-  notions_cles: z.array(z.object({
-    notion: z.string(),
-    explication: z.string(),
-  })).min(1).max(8),
-  checklist: z.array(BilanCheckItemSchema).min(2).max(10),
-  mini_lexique: z.array(z.object({
-    terme: z.string(),
-    definition: z.string(),
-  })).nullable(),
-  conseil_prof: z.string().nullable().describe('PROF ONLY — comment utiliser ce bilan (auto-éval, correction...)'),
-})
-
-export type BilanContenu = z.infer<typeof BilanContenuSchema>
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // DICTÉE — TEACHER ONLY (pas de version élève, l'élève écrit sur feuille)
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -185,28 +105,6 @@ export const GrilleEvaluationContenuSchema = z.object({
 })
 
 export type GrilleEvaluationContenu = z.infer<typeof GrilleEvaluationContenuSchema>
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// FICHE MÉTHODE
-// ═══════════════════════════════════════════════════════════════════════════════
-
-export const FicheMethodeEtapeSchema = z.object({
-  numero: z.number(),
-  titre: z.string(),
-  description: z.string(),
-  exemple: z.string().nullable(),
-  note_prof: z.string().nullable().describe('PROF ONLY — comment introduire cette étape en classe'),
-})
-
-export const FicheMethodeContenuSchema = z.object({
-  objectif: z.string(),
-  etapes: z.array(FicheMethodeEtapeSchema).min(2).max(8),
-  exemple_complet: z.string().nullable().describe('Exemple d\'application complète de la méthode'),
-  pieges_courants: z.array(z.string()).nullable().describe('Erreurs fréquentes à éviter'),
-  note_prof_globale: z.string().nullable().describe('PROF ONLY — difficultés fréquentes chez les élèves'),
-})
-
-export type FicheMethodeContenu = z.infer<typeof FicheMethodeContenuSchema>
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // FICHE DE LECTURE
