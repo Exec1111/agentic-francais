@@ -19,11 +19,15 @@
  *   qcm               → question, propositions, bonnes_reponses (PROF), explication (PROF)
  *   texte_a_trous     → texte_lacunaire, banque_mots, reponses_trous (PROF)
  *   question_ouverte  → enonce, lignes_reponse, reponse_attendue (PROF)
+ *   appariement       → question, appariement_gauche, appariement_droite, appariement_solution (PROF)
+ *   remise_en_ordre   → question, remise_elements, remise_ordre (PROF)
+ *   classement        → question, classement_categories, classement_items, classement_solution (PROF)
  *   commun à tous     → difficulte (nullable), aide (nullable)
  *
  * ── Champs PROF ONLY ───────────────────────────────────────────────────────────
- * bonnes_reponses, explication, reponses_trous, reponse_attendue sont retirés
- * (mis à null) dans la version élève via toStudentVersion().
+ * bonnes_reponses, explication, reponses_trous, reponse_attendue, appariement_solution,
+ * remise_ordre, classement_solution sont retirés (mis à null) dans la version élève
+ * via toStudentVersion().
  *
  * Pour AJOUTER un nouveau type de bloc, voir doc/fiche-questions-blocs.md.
  */
@@ -38,6 +42,9 @@ export const BlocTypeSchema = z.enum([
   'qcm',
   'texte_a_trous',
   'question_ouverte',
+  'appariement',
+  'remise_en_ordre',
+  'classement',
 ])
 export type BlocType = z.infer<typeof BlocTypeSchema>
 
@@ -96,6 +103,36 @@ export const BlocSchema = z.object({
     'PROF ONLY — question_ouverte UNIQUEMENT: éléments de réponse attendus. null sinon.'
   ),
 
+  // ── appariement (relier deux colonnes) ──
+  appariement_gauche: z.array(z.string()).nullable().describe(
+    'appariement UNIQUEMENT: items de la colonne A (gauche), numérotés 1, 2, 3… null sinon.'
+  ),
+  appariement_droite: z.array(z.string()).nullable().describe(
+    'appariement UNIQUEMENT: items de la colonne B (droite), dans un ordre MÉLANGÉ (étiquetés A, B, C…). null sinon.'
+  ),
+  appariement_solution: z.array(z.number()).nullable().describe(
+    'PROF ONLY — appariement UNIQUEMENT: pour chaque item de gauche (dans l\'ordre), index (base 0) de l\'item de droite qui lui correspond. Même longueur que appariement_gauche. null sinon.'
+  ),
+
+  // ── remise_en_ordre ──
+  remise_elements: z.array(z.string()).nullable().describe(
+    'remise_en_ordre UNIQUEMENT: éléments présentés dans le DÉSORDRE (étiquetés A, B, C…) que l\'élève doit ré-ordonner. null sinon.'
+  ),
+  remise_ordre: z.array(z.number()).nullable().describe(
+    'PROF ONLY — remise_en_ordre UNIQUEMENT: ordre correct sous forme d\'index (base 0) dans remise_elements. Ex: [2,0,1] = l\'élément C vient en 1er, A en 2e, B en 3e. null sinon.'
+  ),
+
+  // ── classement (trier dans des catégories) ──
+  classement_categories: z.array(z.string()).nullable().describe(
+    'classement UNIQUEMENT: noms des catégories (colonnes) où ranger les items. 2 à 4 catégories. null sinon.'
+  ),
+  classement_items: z.array(z.string()).nullable().describe(
+    'classement UNIQUEMENT: items à répartir dans les catégories. null sinon.'
+  ),
+  classement_solution: z.array(z.number()).nullable().describe(
+    'PROF ONLY — classement UNIQUEMENT: pour chaque item (dans l\'ordre), index (base 0) de sa catégorie dans classement_categories. Même longueur que classement_items. null sinon.'
+  ),
+
   // ── commun à tous les blocs d\'exercice ──
   difficulte: DifficulteSchema.nullable().describe(
     'Niveau de difficulté du bloc (facile/moyen/difficile). null pour consigne et encadre.'
@@ -124,6 +161,9 @@ export const BLOC_CHAMPS_PROF: (keyof Bloc)[] = [
   'explication',
   'reponses_trous',
   'reponse_attendue',
+  'appariement_solution',
+  'remise_ordre',
+  'classement_solution',
 ]
 
 /** Produit une copie d\'un bloc sans les champs PROF ONLY (pour la version élève). */
@@ -134,6 +174,9 @@ export function stripBlocProf(bloc: Bloc): Bloc {
     explication: null,
     reponses_trous: null,
     reponse_attendue: null,
+    appariement_solution: null,
+    remise_ordre: null,
+    classement_solution: null,
   }
 }
 
@@ -155,6 +198,14 @@ export function createEmptyBloc(type: BlocType, id: string): Bloc {
     enonce: null,
     lignes_reponse: null,
     reponse_attendue: null,
+    appariement_gauche: null,
+    appariement_droite: null,
+    appariement_solution: null,
+    remise_elements: null,
+    remise_ordre: null,
+    classement_categories: null,
+    classement_items: null,
+    classement_solution: null,
     difficulte: null,
     aide: null,
   }
@@ -170,8 +221,38 @@ export function createEmptyBloc(type: BlocType, id: string): Bloc {
       return { ...base, texte_lacunaire: '', banque_mots: null, reponses_trous: [], difficulte: 'facile' }
     case 'question_ouverte':
       return { ...base, enonce: '', lignes_reponse: 4, reponse_attendue: '', difficulte: 'moyen' }
+    case 'appariement':
+      return {
+        ...base, question: 'Relie chaque élément à sa bonne réponse.',
+        appariement_gauche: ['', ''], appariement_droite: ['', ''], appariement_solution: [0, 1],
+        difficulte: 'facile',
+      }
+    case 'remise_en_ordre':
+      return {
+        ...base, question: 'Remets les éléments dans le bon ordre.',
+        remise_elements: ['', '', ''], remise_ordre: [0, 1, 2], difficulte: 'moyen',
+      }
+    case 'classement':
+      return {
+        ...base, question: 'Classe les éléments dans la bonne catégorie.',
+        classement_categories: ['', ''], classement_items: ['', ''], classement_solution: [0, 0],
+        difficulte: 'moyen',
+      }
     default:
       return base
+  }
+}
+
+/**
+ * Template (squelette) d'une fiche de questions vierge — amorce la création
+ * manuelle ET sert de `template` au type fiche_questions. Respecte min(2) blocs.
+ */
+export function createBlankFicheContenu(): FicheQuestionsContenu {
+  return {
+    objectif: 'Nouvelle fiche',
+    introduction: null,
+    duree_estimee: null,
+    blocs: [createEmptyBloc('consigne', 'b1'), createEmptyBloc('question_ouverte', 'b2')],
   }
 }
 
@@ -182,6 +263,9 @@ const BLOC_CHAMPS_PAR_TYPE: Record<BlocType, (keyof Bloc)[]> = {
   qcm: ['id', 'type', 'question', 'propositions', 'bonnes_reponses', 'explication', 'difficulte', 'aide'],
   texte_a_trous: ['id', 'type', 'texte_lacunaire', 'banque_mots', 'reponses_trous', 'difficulte', 'aide'],
   question_ouverte: ['id', 'type', 'enonce', 'lignes_reponse', 'reponse_attendue', 'difficulte', 'aide'],
+  appariement: ['id', 'type', 'question', 'appariement_gauche', 'appariement_droite', 'appariement_solution', 'difficulte', 'aide'],
+  remise_en_ordre: ['id', 'type', 'question', 'remise_elements', 'remise_ordre', 'difficulte', 'aide'],
+  classement: ['id', 'type', 'question', 'classement_categories', 'classement_items', 'classement_solution', 'difficulte', 'aide'],
 }
 
 /**
@@ -208,6 +292,25 @@ export function sanitizeFicheBlocs(fiche: FicheQuestionsContenu): FicheQuestions
   }
 }
 
+/**
+ * Types de blocs « exercice » : seuls ceux-ci sont numérotés (1, 2, 3…) dans les
+ * renderers. Les blocs `consigne` et `encadre` sont des éléments d'accompagnement
+ * non numérotés.
+ */
+export const EXERCISE_BLOC_TYPES: BlocType[] = [
+  'qcm',
+  'texte_a_trous',
+  'question_ouverte',
+  'appariement',
+  'remise_en_ordre',
+  'classement',
+]
+
+/** Vrai si le bloc est un exercice numéroté (par opposition à consigne/encadre). */
+export function isExerciseBloc(type: BlocType): boolean {
+  return EXERCISE_BLOC_TYPES.includes(type)
+}
+
 /** Libellés UI des types de blocs. */
 export const BLOC_LABELS: Record<BlocType, string> = {
   consigne: 'Consigne',
@@ -215,4 +318,7 @@ export const BLOC_LABELS: Record<BlocType, string> = {
   qcm: 'QCM',
   texte_a_trous: 'Texte à trous',
   question_ouverte: 'Question ouverte',
+  appariement: 'Appariement',
+  remise_en_ordre: 'Remise en ordre',
+  classement: 'Classement',
 }

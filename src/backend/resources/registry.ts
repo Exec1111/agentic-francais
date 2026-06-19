@@ -121,19 +121,43 @@ export interface ResourceTypeDefinition<T extends Record<string, unknown>> {
 
   /** Instructions supplémentaires pour le prompt système (optionnel). */
   systemPromptAddendum?: string
+
+  /**
+   * Template (squelette) d'un document vierge, pour les types « à blocs » qui
+   * supportent la composition manuelle (création sans IA). Retourne un contenu
+   * minimal valide (respectant les contraintes du schéma). Absent pour les types
+   * qui ne sont pas composables manuellement.
+   */
+  template?: () => T
 }
 
 // ── Imports des définitions de types ──────────────────────────────────────────
 
 import { ficheQuestionsDefinition } from './types/fiche-questions'
 import { extraitOeuvreDefinition } from './types/extrait-oeuvre'
+import { coursDefinition } from './types/cours'
+import { ficheMethodeDefinition } from './types/methode'
+import { bilanDefinition } from './types/bilan'
+import { dicteeDefinition } from './types/dictee'
+import { oeuvreCompleteDefinition } from './types/oeuvre-complete'
+import { ficheLectureDefinition } from './types/fiche-lecture'
+import { grilleEvaluationDefinition } from './types/grille-evaluation'
+import { carteMentaleDefinition } from './types/carte-mentale'
 
 // ── Registre ──────────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const RESOURCE_REGISTRY: ResourceTypeDefinition<any>[] = [
   ficheQuestionsDefinition,
+  coursDefinition,
+  ficheMethodeDefinition,
+  bilanDefinition,
   extraitOeuvreDefinition,
+  oeuvreCompleteDefinition,
+  ficheLectureDefinition,
+  grilleEvaluationDefinition,
+  carteMentaleDefinition,
+  dicteeDefinition,
   // Ajouter les nouveaux types ici dans l'ordre souhaité d'affichage UI
 ]
 

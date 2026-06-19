@@ -5,6 +5,7 @@ import {
   getRessourceById,
 } from '@/backend/repositories/resource-repo'
 import { getResourceDefinition } from '@/backend/resources/registry'
+import type { RessourceStructuree } from '@/shared/schemas'
 
 /**
  * PATCH /api/resources/:id
@@ -57,7 +58,30 @@ export async function PATCH(
       if (!updated) {
         return Response.json({ error: `Ressource introuvable (id: ${id}).` }, { status: 404 })
       }
-      return Response.json(updated)
+
+      // ── Synchronisation de la version jumelle (prof → élève) ─────────────────
+      // Le contenu prof (avec corrigé) fait foi. Si l'on édite la version
+      // professeur d'une ressource à deux versions, on régénère la version élève
+      // (contenu_json épuré + Markdown) pour que les deux restent cohérentes —
+      // indispensable pour les fiches composées manuellement.
+      let paired: RessourceStructuree | null = null
+      if (
+        existing.audience === 'professeur' &&
+        existing.paired_with &&
+        definition.category === 'TWO_VERSIONS' &&
+        definition.toStudentVersion &&
+        definition.toMarkdown.eleve
+      ) {
+        const studentContent = definition.toStudentVersion(contenu_json as Record<string, unknown>)
+        const studentMarkdown = definition.toMarkdown.eleve(studentContent)
+        paired = updateRessourceContenu(
+          existing.paired_with,
+          studentContent as Record<string, unknown>,
+          studentMarkdown,
+        )
+      }
+
+      return Response.json(paired ? { ...updated, paired } : updated)
     }
 
     // ── Mode 1 : édition Markdown brut ───────────────────────────────────────

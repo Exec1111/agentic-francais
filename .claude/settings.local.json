@@ -32,7 +32,8 @@
       "Bash(cp data/atelier.db _mtest.db)",
       "Bash(cp data/atelier.db-wal _mtest.db-wal)",
       "Bash(cp data/atelier.db-shm _mtest.db-shm)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "PowerShell(npx tsc --noEmit 2>&1)"
     ]
   }
 }

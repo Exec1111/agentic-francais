@@ -47,6 +47,20 @@ TYPES DE BLOCS DISPONIBLES (champs à remplir pour chaque type) :
    → Remplis : enonce, lignes_reponse (nombre 3-8), reponse_attendue (string), difficulte.
    → Mets à null : texte, encadre_variante, encadre_titre, question, propositions, bonnes_reponses, explication, texte_lacunaire, banque_mots, reponses_trous.
 
+6. "appariement" — relier deux colonnes (mot↔définition, auteur↔œuvre, figure↔exemple…).
+   → Remplis : question (consigne courte, ex: "Relie chaque mot à sa définition."), appariement_gauche (colonne A, 3 à 6 items), appariement_droite (colonne B, MÊME nombre d'items mais dans un ordre MÉLANGÉ), appariement_solution (pour chaque item de gauche, l'index base 0 de l'item de droite correspondant), difficulte.
+   → IMPORTANT : appariement_droite NE DOIT PAS être dans le même ordre que appariement_gauche (sinon la solution serait [0,1,2…] et l'exercice trivial). Mélange-la et reflète l'appariement correct dans appariement_solution.
+   → Mets à null : texte, encadre_variante, encadre_titre, propositions, bonnes_reponses, explication, texte_lacunaire, banque_mots, reponses_trous, enonce, lignes_reponse, reponse_attendue, remise_elements, remise_ordre, classement_categories, classement_items, classement_solution.
+
+7. "remise_en_ordre" — remettre des éléments dans l'ordre (étapes d'un récit, vers d'un poème, phrases d'un paragraphe).
+   → Remplis : question (consigne, ex: "Remets ces étapes du récit dans l'ordre."), remise_elements (3 à 6 éléments présentés DANS LE DÉSORDRE), remise_ordre (ordre correct sous forme d'index base 0 dans remise_elements, ex: [2,0,1]), difficulte.
+   → IMPORTANT : remise_elements doit être présenté mélangé ; remise_ordre ne doit donc pas être [0,1,2…].
+   → Mets à null : texte, encadre_variante, encadre_titre, propositions, bonnes_reponses, explication, texte_lacunaire, banque_mots, reponses_trous, enonce, lignes_reponse, reponse_attendue, appariement_gauche, appariement_droite, appariement_solution, classement_categories, classement_items, classement_solution.
+
+8. "classement" — trier des items dans 2 à 4 catégories (nature des mots, registres, temps verbaux…).
+   → Remplis : question (consigne, ex: "Classe ces mots selon leur nature."), classement_categories (2 à 4 noms de catégories), classement_items (items à répartir, 4 à 10), classement_solution (pour chaque item, l'index base 0 de sa catégorie), difficulte.
+   → Mets à null : texte, encadre_variante, encadre_titre, propositions, bonnes_reponses, explication, texte_lacunaire, banque_mots, reponses_trous, enonce, lignes_reponse, reponse_attendue, appariement_gauche, appariement_droite, appariement_solution, remise_elements, remise_ordre.
+
 EXEMPLE JSON correct (UN encadré suivi d'UN qcm) :
 
 \`
@@ -62,6 +76,9 @@ EXEMPLE JSON correct (UN encadré suivi d'UN qcm) :
       "question": null, "propositions": null, "bonnes_reponses": null, "explication": null,
       "texte_lacunaire": null, "banque_mots": null, "reponses_trous": null,
       "enonce": null, "lignes_reponse": null, "reponse_attendue": null,
+      "appariement_gauche": null, "appariement_droite": null, "appariement_solution": null,
+      "remise_elements": null, "remise_ordre": null,
+      "classement_categories": null, "classement_items": null, "classement_solution": null,
       "difficulte": null, "aide": null
     },
     {
@@ -72,6 +89,9 @@ EXEMPLE JSON correct (UN encadré suivi d'UN qcm) :
       "texte": null, "encadre_variante": null, "encadre_titre": null,
       "texte_lacunaire": null, "banque_mots": null, "reponses_trous": null,
       "enonce": null, "lignes_reponse": null, "reponse_attendue": null,
+      "appariement_gauche": null, "appariement_droite": null, "appariement_solution": null,
+      "remise_elements": null, "remise_ordre": null,
+      "classement_categories": null, "classement_items": null, "classement_solution": null,
       "difficulte": "moyen", "aide": null
     }
   ]
@@ -80,7 +100,7 @@ EXEMPLE JSON correct (UN encadré suivi d'UN qcm) :
 
 RÈGLES DE CONCEPTION :
 - 6 à 12 blocs au total pour une fiche équilibrée.
-- Varie les types : alterne encadrés, consignes, QCM, textes à trous, questions ouvertes.
+- Varie les types : alterne encadrés, consignes, QCM, textes à trous, questions ouvertes, appariements, remises en ordre et classements. Ne te limite pas aux QCM : exploite au moins 3 ou 4 types d'exercices différents quand le contenu s'y prête.
 - Organise en difficulté CROISSANTE (facile → moyen → difficile).
 - Chaque bloc doit avoir un "id" unique court (b1, b2, b3…).
 - Les champs marqués PROF (bonnes_reponses, explication, reponses_trous, reponse_attendue) seront masqués pour l'élève : remplis-les TOUJOURS pour permettre la correction.

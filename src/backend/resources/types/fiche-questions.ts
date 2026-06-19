@@ -5,6 +5,8 @@ import {
   type Bloc,
   stripBlocProf,
   sanitizeFicheBlocs,
+  EXERCISE_BLOC_TYPES,
+  createBlankFicheContenu,
 } from '@/shared/resource-blocks'
 import { buildMessages } from '@/backend/prompts/fiche-questions'
 import { buildCorpusContextBlocks } from '@/backend/workflow-engine'
@@ -67,6 +69,9 @@ Référence  : ${item.edition_reference}${item.pages ? ` — pages ${item.pages}
   },
 
   suggestedFor: ['exercice', 'evaluation'],
+
+  // ── Création manuelle : squelette d'une fiche vierge ───────────────────────
+  template: () => createBlankFicheContenu(),
 }
 
 // ── Rendu Markdown ───────────────────────────────────────────────────────────────
@@ -76,6 +81,9 @@ const DIFFICULTE_EMOJI: Record<string, string> = {
   moyen: '🟡',
   difficile: '🔴',
 }
+
+/** Étiquette alphabétique d'un index : 0 → A, 1 → B, … */
+const LETTER = (i: number): string => String.fromCharCode(65 + i)
 
 const ENCADRE_EMOJI: Record<string, string> = {
   rappel: '💡',
@@ -100,7 +108,7 @@ function renderFicheMarkdown(r: FicheQuestionsContenu, audience: 'professeur' | 
   let qNum = 1
   for (const bloc of r.blocs) {
     lines.push(...renderBlocMarkdown(bloc, isPro, qNum))
-    if (['qcm', 'texte_a_trous', 'question_ouverte'].includes(bloc.type)) qNum++
+    if (EXERCISE_BLOC_TYPES.includes(bloc.type)) qNum++
     lines.push('')
   }
 
@@ -172,6 +180,78 @@ function renderBlocMarkdown(bloc: Bloc, isPro: boolean, qNum: number): string[] 
       } else {
         const n = bloc.lignes_reponse ?? 4
         for (let i = 0; i < n; i++) lines.push('________________________________________________________')
+      }
+      break
+    }
+
+    case 'appariement': {
+      const gauche = bloc.appariement_gauche ?? []
+      const droite = bloc.appariement_droite ?? []
+      lines.push(`**${qNum}.** ${diff}${bloc.question ?? 'Relie chaque élément à sa bonne réponse :'}`)
+      lines.push('')
+      lines.push('| # | Colonne A | | Colonne B |')
+      lines.push('|---|-----------|---|-----------|')
+      const rows = Math.max(gauche.length, droite.length)
+      for (let i = 0; i < rows; i++) {
+        const g = gauche[i] ?? ''
+        const d = droite[i] ?? ''
+        lines.push(`| ${i + 1} | ${g} | ${LETTER(i)} | ${d} |`)
+      }
+      if (isPro && bloc.appariement_solution) {
+        lines.push('')
+        const sol = bloc.appariement_solution
+          .map((d, i) => `${i + 1} → ${LETTER(d)}`)
+          .join(', ')
+        lines.push(`> ✅ **Solution :** ${sol}`)
+      }
+      break
+    }
+
+    case 'remise_en_ordre': {
+      const elems = bloc.remise_elements ?? []
+      lines.push(`**${qNum}.** ${diff}${bloc.question ?? 'Remets les éléments dans le bon ordre :'}`)
+      lines.push('')
+      elems.forEach((e, i) => lines.push(`- **${LETTER(i)}.** ${e}`))
+      if (isPro && bloc.remise_ordre) {
+        lines.push('')
+        const ordre = bloc.remise_ordre.map((idx) => LETTER(idx)).join(' → ')
+        lines.push(`> ✅ **Ordre correct :** ${ordre}`)
+      } else {
+        lines.push('')
+        lines.push(`*Ordre : ${elems.map(() => '___').join(' · ')}*`)
+      }
+      break
+    }
+
+    case 'classement': {
+      const cats = bloc.classement_categories ?? []
+      const items = bloc.classement_items ?? []
+      const sol = bloc.classement_solution ?? []
+      lines.push(`**${qNum}.** ${diff}${bloc.question ?? 'Classe les éléments dans la bonne catégorie :'}`)
+      lines.push('')
+      if (items.length > 0) {
+        lines.push(`📦 **Étiquettes :** ${items.join(' — ')}`)
+        lines.push('')
+      }
+      lines.push(`| ${cats.join(' | ')} |`)
+      lines.push(`|${cats.map(() => '---').join('|')}|`)
+      if (isPro) {
+        // Regroupe les items par catégorie, une colonne par catégorie.
+        const parCat: string[][] = cats.map(() => [])
+        items.forEach((item, i) => {
+          const c = sol[i]
+          if (c != null && c >= 0 && c < cats.length) parCat[c].push(item)
+        })
+        const nbRows = Math.max(1, ...parCat.map((c) => c.length))
+        for (let r = 0; r < nbRows; r++) {
+          lines.push(`| ${parCat.map((c) => c[r] ?? '').join(' | ')} |`)
+        }
+      } else {
+        // Lignes vides pour que l'élève répartisse les étiquettes.
+        const nbRows = Math.max(3, Math.ceil(items.length / Math.max(1, cats.length)) + 1)
+        for (let r = 0; r < nbRows; r++) {
+          lines.push(`| ${cats.map(() => ' ').join(' | ')} |`)
+        }
       }
       break
     }

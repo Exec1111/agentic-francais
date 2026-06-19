@@ -110,3 +110,59 @@ export async function generateResourcePair(opts: GenerateResourceOptions): Promi
 
   return { professeur }
 }
+
+/**
+ * Construit une ressource VIERGE (sans appel LLM) à partir du `template` de son
+ * type, prête à être composée manuellement bloc par bloc dans l'éditeur.
+ *
+ * Réservé aux types « à blocs » qui exposent un `template` (ex: fiche_questions,
+ * cours). Le contenu de départ respecte les contraintes du schéma (ex: min 2 blocs).
+ * Le Markdown et la version élève sont dérivés via la définition du type, exactement
+ * comme pour une ressource générée — seul l'appel au LLM est court-circuité.
+ *
+ * Throws si le type est inconnu ou n'est pas composable manuellement (pas de template).
+ */
+export function buildBlankResourcePair(type: RessourceType, activiteId?: string): RessourcePaire {
+  const definition = getResourceDefinition(type)
+  if (!definition) {
+    throw new Error(`Type de ressource inconnu ou non enregistré : "${type}"`)
+  }
+  if (!definition.template) {
+    throw new Error(`Le type "${type}" ne supporte pas la création manuelle (aucun template).`)
+  }
+
+  const contenu = definition.template()
+  const profId = newId()
+  const timestamp = now()
+  const isTwoVersions =
+    definition.category === 'TWO_VERSIONS' && !!definition.toStudentVersion && !!definition.toMarkdown.eleve
+  const eleveId = isTwoVersions ? newId() : undefined
+
+  const professeur: RessourceStructuree = {
+    id: profId,
+    activite_id: activiteId,
+    type,
+    audience: 'professeur',
+    paired_with: eleveId,
+    contenu_json: contenu as Record<string, unknown>,
+    contenu_markdown: definition.toMarkdown.professeur(contenu),
+    created_at: timestamp,
+  }
+
+  if (isTwoVersions && eleveId) {
+    const studentContent = definition.toStudentVersion!(contenu)
+    const eleve: RessourceStructuree = {
+      id: eleveId,
+      activite_id: activiteId,
+      type,
+      audience: 'eleve',
+      paired_with: profId,
+      contenu_json: studentContent as Record<string, unknown>,
+      contenu_markdown: definition.toMarkdown.eleve!(studentContent),
+      created_at: timestamp,
+    }
+    return { professeur, eleve }
+  }
+
+  return { professeur }
+}

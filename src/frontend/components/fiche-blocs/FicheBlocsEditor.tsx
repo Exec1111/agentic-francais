@@ -28,12 +28,18 @@ interface Props {
   onChange: (next: FicheQuestionsContenu) => void
 }
 
-const BLOC_TYPES: BlocType[] = ['consigne', 'encadre', 'qcm', 'texte_a_trous', 'question_ouverte']
+const BLOC_TYPES: BlocType[] = [
+  'consigne', 'encadre', 'qcm', 'texte_a_trous', 'question_ouverte',
+  'appariement', 'remise_en_ordre', 'classement',
+]
 const DIFFICULTES: Difficulte[] = ['facile', 'moyen', 'difficile']
 const VARIANTES: EncadreVariante[] = ['rappel', 'astuce', 'attention', 'exemple']
 
 const inputCls = 'w-full bg-gray-900/60 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-blue-600/60 transition-colors'
 const labelCls = 'block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1'
+
+/** Étiquette alphabétique d'un index : 0 → A, 1 → B, … */
+const letter = (i: number): string => String.fromCharCode(65 + i)
 
 export function FicheBlocsEditor({ contenu, onChange }: Props) {
   const newId = () =>
@@ -232,6 +238,15 @@ function BlocForm({ bloc, onUpdate }: { bloc: Bloc; onUpdate: (c: Partial<Bloc>)
     case 'question_ouverte':
       return <QuestionOuverteForm bloc={bloc} onUpdate={onUpdate} />
 
+    case 'appariement':
+      return <AppariementForm bloc={bloc} onUpdate={onUpdate} />
+
+    case 'remise_en_ordre':
+      return <RemiseEnOrdreForm bloc={bloc} onUpdate={onUpdate} />
+
+    case 'classement':
+      return <ClassementForm bloc={bloc} onUpdate={onUpdate} />
+
     default:
       return null
   }
@@ -404,6 +419,241 @@ function QuestionOuverteForm({ bloc, onUpdate }: { bloc: Bloc; onUpdate: (c: Par
             onChange={(e) => onUpdate({ reponse_attendue: e.target.value || null })}
             placeholder="Éléments de réponse attendus" />
         </div>
+      </div>
+      <DifficulteAide bloc={bloc} onUpdate={onUpdate} />
+    </>
+  )
+}
+
+// ── Appariement ────────────────────────────────────────────────────────────────
+
+function AppariementForm({ bloc, onUpdate }: { bloc: Bloc; onUpdate: (c: Partial<Bloc>) => void }) {
+  const gauche = bloc.appariement_gauche ?? []
+  const droite = bloc.appariement_droite ?? []
+  const solution = bloc.appariement_solution ?? []
+
+  const setGauche = (i: number, val: string) =>
+    onUpdate({ appariement_gauche: gauche.map((g, j) => (j === i ? val : g)) })
+  const setDroite = (i: number, val: string) =>
+    onUpdate({ appariement_droite: droite.map((d, j) => (j === i ? val : d)) })
+  const setSolution = (i: number, val: number) =>
+    onUpdate({ appariement_solution: solution.map((s, j) => (j === i ? val : s)) })
+
+  const addGauche = () =>
+    onUpdate({ appariement_gauche: [...gauche, ''], appariement_solution: [...solution, 0] })
+  const removeGauche = (i: number) =>
+    onUpdate({
+      appariement_gauche: gauche.filter((_, j) => j !== i),
+      appariement_solution: solution.filter((_, j) => j !== i),
+    })
+
+  const addDroite = () => onUpdate({ appariement_droite: [...droite, ''] })
+  const removeDroite = (i: number) => {
+    // Répercute la suppression sur la solution (décale les index, neutralise les renvois vers i)
+    const nextSolution = solution.map((s) => (s === i ? 0 : s > i ? s - 1 : s))
+    onUpdate({ appariement_droite: droite.filter((_, j) => j !== i), appariement_solution: nextSolution })
+  }
+
+  return (
+    <>
+      <div>
+        <label className={labelCls}>Consigne</label>
+        <textarea className={cn(inputCls, 'resize-y min-h-[40px]')} value={bloc.question ?? ''}
+          onChange={(e) => onUpdate({ question: e.target.value })}
+          placeholder="Ex : Relie chaque mot à sa définition." />
+      </div>
+      <div>
+        <label className={labelCls}>Colonne A (à relier — choisis la bonne lettre)</label>
+        <div className="space-y-1.5">
+          {gauche.map((g, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="h-6 w-6 shrink-0 rounded-md bg-gray-800 text-gray-400 text-xs font-bold flex items-center justify-center">
+                {i + 1}
+              </span>
+              <input className={inputCls} value={g} onChange={(e) => setGauche(i, e.target.value)}
+                placeholder={`Élément ${i + 1}`} />
+              <select className={cn(inputCls, 'w-16 shrink-0')} value={solution[i] ?? 0}
+                onChange={(e) => setSolution(i, Number(e.target.value))} title="Bonne correspondance">
+                {droite.map((_, j) => <option key={j} value={j}>{letter(j)}</option>)}
+              </select>
+              <button onClick={() => removeGauche(i)} className="p-1 text-gray-600 hover:text-red-400 shrink-0" title="Retirer">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <button onClick={addGauche} className="mt-2 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
+          <Plus className="h-3 w-3" /> Ajouter une ligne
+        </button>
+      </div>
+      <div>
+        <label className={labelCls}>Colonne B (réponses, à présenter mélangées)</label>
+        <div className="space-y-1.5">
+          {droite.map((d, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="h-6 w-6 shrink-0 rounded-md bg-purple-500/20 text-purple-300 text-xs font-bold flex items-center justify-center">
+                {letter(i)}
+              </span>
+              <input className={inputCls} value={d} onChange={(e) => setDroite(i, e.target.value)}
+                placeholder={`Réponse ${letter(i)}`} />
+              <button onClick={() => removeDroite(i)} className="p-1 text-gray-600 hover:text-red-400 shrink-0" title="Retirer">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <button onClick={addDroite} className="mt-2 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
+          <Plus className="h-3 w-3" /> Ajouter une réponse
+        </button>
+      </div>
+      <DifficulteAide bloc={bloc} onUpdate={onUpdate} />
+    </>
+  )
+}
+
+// ── Remise en ordre ──────────────────────────────────────────────────────────────
+
+function RemiseEnOrdreForm({ bloc, onUpdate }: { bloc: Bloc; onUpdate: (c: Partial<Bloc>) => void }) {
+  const elems = bloc.remise_elements ?? []
+  const ordre = bloc.remise_ordre ?? []
+
+  // Rang (1-based) actuel de chaque élément d'après l'ordre stocké.
+  const rangDe = (i: number) => {
+    const pos = ordre.indexOf(i)
+    return pos === -1 ? elems.length : pos + 1
+  }
+
+  const setElem = (i: number, val: string) =>
+    onUpdate({ remise_elements: elems.map((e, j) => (j === i ? val : e)) })
+
+  // L'utilisateur saisit le rang d'un élément → on reconstruit remise_ordre
+  // en triant les index par rang courant (tri stable sur l'index en cas d'égalité).
+  const setRang = (i: number, rang: number) => {
+    const ranks = elems.map((_, j) => (j === i ? rang : rangDe(j)))
+    const nextOrdre = elems
+      .map((_, j) => j)
+      .sort((a, b) => (ranks[a] - ranks[b]) || (a - b))
+    onUpdate({ remise_ordre: nextOrdre })
+  }
+
+  const addElem = () =>
+    onUpdate({ remise_elements: [...elems, ''], remise_ordre: [...ordre, elems.length] })
+  const removeElem = (i: number) =>
+    onUpdate({
+      remise_elements: elems.filter((_, j) => j !== i),
+      remise_ordre: ordre.filter((o) => o !== i).map((o) => (o > i ? o - 1 : o)),
+    })
+
+  return (
+    <>
+      <div>
+        <label className={labelCls}>Consigne</label>
+        <textarea className={cn(inputCls, 'resize-y min-h-[40px]')} value={bloc.question ?? ''}
+          onChange={(e) => onUpdate({ question: e.target.value })}
+          placeholder="Ex : Remets ces étapes du récit dans l'ordre." />
+      </div>
+      <div>
+        <label className={labelCls}>Éléments (présentés mélangés ; saisis le rang correct)</label>
+        <div className="space-y-1.5">
+          {elems.map((e, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="h-6 w-6 shrink-0 rounded-md bg-gray-800 text-gray-400 text-xs font-bold flex items-center justify-center">
+                {letter(i)}
+              </span>
+              <input className={inputCls} value={e} onChange={(ev) => setElem(i, ev.target.value)}
+                placeholder={`Élément ${letter(i)}`} />
+              <input type="number" min={1} max={elems.length} className={cn(inputCls, 'w-16 shrink-0 text-center')}
+                value={rangDe(i)} onChange={(ev) => setRang(i, Number(ev.target.value))} title="Rang correct" />
+              <button onClick={() => removeElem(i)} className="p-1 text-gray-600 hover:text-red-400 shrink-0" title="Retirer">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <button onClick={addElem} className="mt-2 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
+          <Plus className="h-3 w-3" /> Ajouter un élément
+        </button>
+      </div>
+      <DifficulteAide bloc={bloc} onUpdate={onUpdate} />
+    </>
+  )
+}
+
+// ── Classement ────────────────────────────────────────────────────────────────
+
+function ClassementForm({ bloc, onUpdate }: { bloc: Bloc; onUpdate: (c: Partial<Bloc>) => void }) {
+  const cats = bloc.classement_categories ?? []
+  const items = bloc.classement_items ?? []
+  const solution = bloc.classement_solution ?? []
+
+  const setCat = (i: number, val: string) =>
+    onUpdate({ classement_categories: cats.map((c, j) => (j === i ? val : c)) })
+  const addCat = () => onUpdate({ classement_categories: [...cats, ''] })
+  const removeCat = (i: number) => {
+    const nextSolution = solution.map((s) => (s === i ? 0 : s > i ? s - 1 : s))
+    onUpdate({ classement_categories: cats.filter((_, j) => j !== i), classement_solution: nextSolution })
+  }
+
+  const setItem = (i: number, val: string) =>
+    onUpdate({ classement_items: items.map((it, j) => (j === i ? val : it)) })
+  const setItemCat = (i: number, val: number) =>
+    onUpdate({ classement_solution: solution.map((s, j) => (j === i ? val : s)) })
+  const addItem = () =>
+    onUpdate({ classement_items: [...items, ''], classement_solution: [...solution, 0] })
+  const removeItem = (i: number) =>
+    onUpdate({
+      classement_items: items.filter((_, j) => j !== i),
+      classement_solution: solution.filter((_, j) => j !== i),
+    })
+
+  return (
+    <>
+      <div>
+        <label className={labelCls}>Consigne</label>
+        <textarea className={cn(inputCls, 'resize-y min-h-[40px]')} value={bloc.question ?? ''}
+          onChange={(e) => onUpdate({ question: e.target.value })}
+          placeholder="Ex : Classe ces mots selon leur nature." />
+      </div>
+      <div>
+        <label className={labelCls}>Catégories</label>
+        <div className="space-y-1.5">
+          {cats.map((c, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input className={inputCls} value={c} onChange={(e) => setCat(i, e.target.value)}
+                placeholder={`Catégorie ${i + 1}`} />
+              <button onClick={() => removeCat(i)} disabled={cats.length <= 2}
+                className="p-1 text-gray-600 hover:text-red-400 disabled:opacity-25 shrink-0" title="Retirer">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+        {cats.length < 4 && (
+          <button onClick={addCat} className="mt-2 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
+            <Plus className="h-3 w-3" /> Ajouter une catégorie
+          </button>
+        )}
+      </div>
+      <div>
+        <label className={labelCls}>Étiquettes à classer (choisis la bonne catégorie)</label>
+        <div className="space-y-1.5">
+          {items.map((it, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input className={inputCls} value={it} onChange={(e) => setItem(i, e.target.value)}
+                placeholder={`Étiquette ${i + 1}`} />
+              <select className={cn(inputCls, 'w-40 shrink-0')} value={solution[i] ?? 0}
+                onChange={(e) => setItemCat(i, Number(e.target.value))} title="Catégorie correcte">
+                {cats.map((c, j) => <option key={j} value={j}>{c || `Catégorie ${j + 1}`}</option>)}
+              </select>
+              <button onClick={() => removeItem(i)} className="p-1 text-gray-600 hover:text-red-400 shrink-0" title="Retirer">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <button onClick={addItem} className="mt-2 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
+          <Plus className="h-3 w-3" /> Ajouter une étiquette
+        </button>
       </div>
       <DifficulteAide bloc={bloc} onUpdate={onUpdate} />
     </>

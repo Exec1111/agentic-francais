@@ -1,15 +1,15 @@
 # Système de blocs — Fiches de questions (`fiche_questions`)
 
 > Documentation complète du nouveau système par blocs pour les fiches de questions.
-> **Dernière mise à jour** : 12 juin 2026
+> **Dernière mise à jour** : 18 juin 2026
 
 ---
 
 ## Vue d'ensemble
 
 Le type de ressource `fiche_questions` repose sur une **liste de blocs hétérogènes**.
-Chaque bloc a un type (`consigne`, `qcm`, `texte_a_trous`, `question_ouverte`, `encadre`)
-et ses propres champs. Cette architecture permet :
+Chaque bloc a un type (`consigne`, `qcm`, `texte_a_trous`, `question_ouverte`, `encadre`,
+`appariement`, `remise_en_ordre`, `classement`) et ses propres champs. Cette architecture permet :
 
 - un **rendu riche et adapté au collège** (pas de Markdown plat)
 - une **édition granulaire** par le professeur (formuler dédié par type)
@@ -26,10 +26,33 @@ et ses propres champs. Cette architecture permet :
 | `qcm` | Question à choix multiples | `question`, `propositions[]`, `bonnes_reponses[]` (PROF), `explication` (PROF) |
 | `texte_a_trous` | Texte à compléter | `texte_lacunaire`, `banque_mots[]`, `reponses_trous[]` (PROF) |
 | `question_ouverte` | Question rédactionnelle | `enonce`, `lignes_reponse`, `reponse_attendue` (PROF) |
+| `appariement` | Relier deux colonnes (mot↔définition…) | `question`, `appariement_gauche[]`, `appariement_droite[]`, `appariement_solution[]` (PROF) |
+| `remise_en_ordre` | Ré-ordonner des éléments | `question`, `remise_elements[]`, `remise_ordre[]` (PROF) |
+| `classement` | Trier des items dans 2-4 catégories | `question`, `classement_categories[]`, `classement_items[]`, `classement_solution[]` (PROF) |
 
 Tous les blocs partagent deux champs optionnels communs :
 - `difficulte` : `"facile" | "moyen" | "difficile"`
 - `aide` : indice affiché pour l'élève (peut être null)
+
+### Conventions des nouveaux blocs (appariement / remise / classement)
+
+Ces trois types encodent leur corrigé comme un tableau d'**index** parallèle aux données affichées
+— jamais en réordonnant les données elles-mêmes (qui doivent rester « mélangées » côté élève) :
+
+- **`appariement`** : `appariement_droite` est présentée dans un ordre **mélangé** (étiquetée A, B, C…).
+  `appariement_solution[i]` = index (base 0) de l'item de droite correspondant à l'item de gauche `i`.
+- **`remise_en_ordre`** : `remise_elements` est présentée **dans le désordre** (étiquetée A, B, C…).
+  `remise_ordre` = séquence d'index dans `remise_elements` donnant l'ordre correct (ex. `[2,0,1]`).
+- **`classement`** : `classement_solution[i]` = index (base 0) de la catégorie de l'item `i`.
+
+Comme `appariement_solution`, `remise_ordre` et `classement_solution` sont des champs **PROF ONLY**,
+la version élève (via `stripBlocProf`) ne révèle jamais le corrigé : les colonnes/éléments/étiquettes
+restent visibles mais leur mise en correspondance est masquée.
+
+> La liste des types « exercice » (numérotés 1, 2, 3…) est centralisée dans
+> `EXERCISE_BLOC_TYPES` / `isExerciseBloc()` (`src/shared/resource-blocks.ts`) et partagée
+> par le renderer Markdown (backend) et le renderer React (frontend). `consigne` et `encadre`
+> ne sont pas numérotés.
 
 ---
 
@@ -46,7 +69,7 @@ compatibilité avec les **structured outputs** OpenAI (`strict: true`) et Ollama
 ```ts
 export const BlocSchema = z.object({
   id: z.string(),
-  type: BlocTypeSchema,           // discriminant : 'consigne' | 'encadre' | 'qcm' | 'texte_a_trous' | 'question_ouverte'
+  type: BlocTypeSchema,           // discriminant : 'consigne' | 'encadre' | 'qcm' | 'texte_a_trous' | 'question_ouverte' | 'appariement' | 'remise_en_ordre' | 'classement'
   texte: z.string().nullable(),
   encadre_variante: EncadreVarianteSchema.nullable(),
   encadre_titre: z.string().nullable(),
@@ -60,6 +83,14 @@ export const BlocSchema = z.object({
   enonce: z.string().nullable(),
   lignes_reponse: z.number().nullable(),
   reponse_attendue: z.string().nullable(),           // PROF ONLY
+  appariement_gauche: z.array(z.string()).nullable(),
+  appariement_droite: z.array(z.string()).nullable(),
+  appariement_solution: z.array(z.number()).nullable(),    // PROF ONLY
+  remise_elements: z.array(z.string()).nullable(),
+  remise_ordre: z.array(z.number()).nullable(),            // PROF ONLY
+  classement_categories: z.array(z.string()).nullable(),
+  classement_items: z.array(z.string()).nullable(),
+  classement_solution: z.array(z.number()).nullable(),     // PROF ONLY
   difficulte: DifficulteSchema.nullable(),
   aide: z.string().nullable(),
 })
@@ -126,12 +157,15 @@ contient un tableau `blocs[]`, le `ResourcePanel` bascule en **mode blocs** :
 | `qcm` | textarea (question) + N champs texte + checkboxes bonne réponse + textarea (explication prof) + difficulté/aide |
 | `texte_a_trous` | textarea (texte avec `[1]`, `[2]`) + N champs réponses + banque à mots + difficulté/aide |
 | `question_ouverte` | textarea (énoncé) + nombre de lignes + textarea (réponse attendue prof) + difficulté/aide |
+| `appariement` | consigne + colonne A (texte + select de la bonne lettre) + colonne B (réponses A, B, C…) + difficulté/aide |
+| `remise_en_ordre` | consigne + N éléments (texte + champ « rang correct ») + difficulté/aide |
+| `classement` | consigne + N catégories + N étiquettes (texte + select de la catégorie) + difficulté/aide |
 
 ### Actions globales sur les blocs
 
 - **↕** : réordonner (boutons haut/bas)
 - **🗑️** : supprimer
-- **+ Ajouter un bloc** : menu avec les 5 types disponibles
+- **+ Ajouter un bloc** : menu avec les 8 types disponibles
 
 ### Persistance
 
@@ -221,9 +255,12 @@ l'élève ne voit jamais le corrigé, même si le LLM l'a généré.
 
 ### Numérotation automatique
 
-Seuls les blocs d'exercice (`qcm`, `texte_a_trous`, `question_ouverte`) sont
-numérotés dans le renderer. Les blocs `consigne` et `encadre` ne le sont pas.
-La numérotation est gérée par le composant `FicheBlocsRenderer` (variable `qNum`).
+Seuls les blocs d'exercice sont numérotés dans le renderer (la liste fait foi :
+`EXERCISE_BLOC_TYPES` dans `src/shared/resource-blocks.ts` — `qcm`, `texte_a_trous`,
+`question_ouverte`, `appariement`, `remise_en_ordre`, `classement`). Les blocs `consigne`
+et `encadre` ne le sont pas. La numérotation est gérée par le composant `FicheBlocsRenderer`
+(variable `qNum`) côté frontend et par `renderFicheMarkdown` côté backend, tous deux via
+`isExerciseBloc()` / `EXERCISE_BLOC_TYPES` pour rester synchronisés.
 
 ### Fallback Markdown
 

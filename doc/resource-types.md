@@ -1,7 +1,7 @@
 # Guide : Ajouter un Type de Ressource
 
 > Documentation technique pour l'ajout et la maintenance des types de ressources pédagogiques.  
-> **Dernière mise à jour** : 12 juin 2026  
+> **Dernière mise à jour** : 18 juin 2026  
 > Voir aussi :
 > - [`doc/concepts.md`](./concepts.md) — glossaire complet des notions métier
 > - [`doc/fiche-questions-blocs.md`](./fiche-questions-blocs.md) — documentation du système de blocs (type `fiche_questions`)
@@ -31,8 +31,31 @@ Cela garantit la cohérence entre les deux versions (même exercice, même corri
 
 | Catégorie | Description | Exemple |
 |-----------|-------------|---------|
-| `TWO_VERSIONS` | Génère un document élève ET un document prof | `fiche_questions`, `extrait_oeuvre` |
+| `TWO_VERSIONS` | Génère un document élève ET un document prof | `fiche_questions`, `cours`, `extrait_oeuvre` |
 | `TEACHER_ONLY` | Un seul document, à destination du professeur uniquement | *(aucun type implémenté à ce jour ; `dictee` est prévu)* |
+
+## Deux familles d'implémentation
+
+Au-delà de la catégorie (1 ou 2 versions), un type appartient à l'une de deux **familles** :
+
+| Famille | Principe | Rendu / édition | Types |
+|---------|----------|-----------------|-------|
+| 🟦 **Document par blocs** | `contenu_json` = liste de blocs hétérogènes. Framework de rendu/édition **partagé** (renderer + éditeur visuel React, création manuelle « vierge »). | React riche + Markdown/PDF + éditeur de blocs | `fiche_questions` (blocs d'exercice), `cours` / `fiche_methode` / `bilan` (blocs de contenu) |
+| 🟧 **Schéma dédié** | `contenu_json` = schéma sur-mesure propre au type. | Markdown/PDF uniquement (édition Markdown brut) | `extrait_oeuvre` |
+
+**Quand choisir l'une ou l'autre ?**
+- *Document par blocs* pour les contenus **linéaires et hétérogènes** où l'on veut la composition manuelle et un rendu riche (cours, méthode, bilan, exercices).
+- *Schéma dédié* pour les structures **fortes et spécifiques** (matrice d'une grille d'évaluation, graphe d'une carte mentale, texte + appareil d'un extrait).
+
+### Brancher un type « document par blocs »
+
+1. **Schéma** : `src/shared/resource-blocks-<type>.ts` (modèle plat nullable, helpers, `createBlank<Type>Contenu`).
+2. **Définition backend** : `src/backend/resources/types/<type>.ts` + prompt dans `src/backend/prompts/<type>.ts`. Fournir `template: () => createBlank<Type>Contenu()` pour activer la création manuelle.
+3. **Composants React** : `src/frontend/components/<type>-blocs/` (`parse.ts`, `<Type>BlocsRenderer.tsx`, `<Type>BlocsEditor.tsx`).
+4. **Registre frontend** : ajouter une entrée dans `src/frontend/components/blocs-registry.tsx` (libellé « … vierge » + parse + Renderer + Editor). Le `ResourcePanel` et la création manuelle deviennent automatiquement disponibles pour ce type.
+
+> La création manuelle (« Créer vierge ») et la synchronisation prof→élève à la sauvegarde
+> sont **génériques** : tout type exposant un `template` et inscrit au registre frontend en bénéficie sans code supplémentaire.
 
 > **Pour ajouter une catégorie** (ex. `STUDENT_ONLY` pour une affiche) : ajouter la valeur dans `ResourceCategory` dans `src/shared/schemas/resource.ts` et gérer le cas dans le `ResourceRegistry`.
 
@@ -304,26 +327,27 @@ Avant de considérer le type comme complet :
 
 | Type | Catégorie | Champs PROF ONLY | Suggéré pour |
 |------|-----------|-----------------|--------------|
-| `fiche_questions` | TWO_VERSIONS | `blocs[].bonnes_reponses` (QCM), `blocs[].explication` (QCM), `blocs[].reponses_trous` (texte à trous), `blocs[].reponse_attendue` (question ouverte) | `exercice`, `evaluation` |
+| `fiche_questions` | TWO_VERSIONS | `blocs[].bonnes_reponses` (QCM), `blocs[].explication` (QCM), `blocs[].reponses_trous` (texte à trous), `blocs[].reponse_attendue` (question ouverte), `blocs[].appariement_solution`, `blocs[].remise_ordre`, `blocs[].classement_solution` | `exercice`, `evaluation` |
+| `cours` | TWO_VERSIONS | `blocs[].note_prof`, `note_prof_globale` | `lecture`, `oral` |
+| `fiche_methode` | TWO_VERSIONS | `blocs[].note_prof`, `note_prof_globale` | `production_ecrite`, `exercice` |
+| `bilan` | TWO_VERSIONS | `blocs[].note_prof`, `blocs[].checklist_remediation` (auto-évaluation), `note_prof_globale` | `evaluation`, `exercice` |
 | `extrait_oeuvre` | TWO_VERSIONS | `questions[].reponse_attendue`, `questions[].elements_analyse`, `note_prof` | `lecture`, `debat` |
-
-### Types déclarés dans l'enum mais NON implémentés
-
-> ⚠️ Ces types figurent dans `RessourceTypeSchema` mais n'ont **aucune définition**
-> dans `registry.ts` (pas de fichier dans `src/backend/resources/types/`). Le tableau
-> ci-dessous décrit l'**intention de conception**, pas l'état du code. Tenter de les
-> générer lève `Type de ressource inconnu ou non enregistré`.
-
-| Type | Catégorie (prévue) | Champs PROF ONLY (prévus) | Suggéré pour (prévu) |
-|------|-----------|-----------------|--------------|
-| `cours` | TWO_VERSIONS | `sections[].note_prof`, `note_prof_globale` | `lecture`, `oral` |
-| `bilan` | TWO_VERSIONS | `checklist[].reponse_correcte`, `checklist[].remediation` | `evaluation`, `exercice` |
-| `oeuvre_complete` | TWO_VERSIONS | `questions[].reponse_attendue`, `questions_approfondissement[].pistes` | `lecture` |
-| `grille_evaluation` | TWO_VERSIONS | `competences[].niveaux[].points`, `bareme` | `production_ecrite`, `evaluation`, `oral` |
-| `fiche_methode` | TWO_VERSIONS | `etapes[].note_prof`, `note_prof_globale` | `production_ecrite`, `exercice` |
-| `fiche_lecture` | TWO_VERSIONS | `sections[].questions[].reponse_attendue` | `lecture`, `recherche` |
-| `carte_mentale` | TWO_VERSIONS | *(version élève = nœuds à compléter, version prof = complète)* | `cours`, `bilan` |
+| `oeuvre_complete` | TWO_VERSIONS | `questions[].reponse_attendue`, `questions[].elements_analyse`, `questions_approfondissement[].pistes`, `note_prof` | `lecture` |
+| `fiche_lecture` | TWO_VERSIONS | `sections[].questions[].reponse_attendue`, `note_prof` | `lecture`, `recherche` |
+| `grille_evaluation` | TWO_VERSIONS | `competences[].niveaux[].points`, `total_points`, `bareme`, `note_prof` | `production_ecrite`, `evaluation`, `oral` |
+| `carte_mentale` | TWO_VERSIONS | nœuds `a_completer` masqués côté élève, `note_prof` | `recherche`, `collaboration` |
 | `dictee` | TEACHER_ONLY | *(document entier, pas de version élève)* | `exercice`, `evaluation` |
+
+**Les 10 types déclarés dans `RessourceTypeSchema` sont désormais implémentés.**
+
+Les 5 premiers (🟦) sont de la famille « document par blocs » ; `extrait_oeuvre`, `oeuvre_complete`,
+`fiche_lecture`, `grille_evaluation`, `carte_mentale` et `dictee` (🟧) sont de la famille « schéma
+dédié » (rendu Markdown sur-mesure, édition via le Markdown brut, pas d'éditeur de blocs).
+
+> Note : `src/shared/resource-schemas.ts` contient encore d'anciens schémas bespoke
+> (`CoursContenuSchema`, `BilanContenuSchema`, `FicheMethodeContenuSchema`) issus de
+> l'intention de conception initiale. Ils sont **inutilisés** : `cours`, `bilan` et
+> `fiche_methode` reposent sur la famille « blocs » (`resource-blocks-*.ts`). À nettoyer.
 
 ---
 

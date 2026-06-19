@@ -1,8 +1,11 @@
 'use client'
 
-import { Lightbulb, Sparkles, AlertTriangle, FileText, HelpCircle, CheckCircle2 } from 'lucide-react'
+import { Lightbulb, Sparkles, AlertTriangle, FileText, HelpCircle, CheckCircle2, ArrowRight } from 'lucide-react'
 import { cn } from '@/shared/utils'
-import type { Bloc, FicheQuestionsContenu, EncadreVariante } from '@/shared/resource-blocks'
+import { type Bloc, type FicheQuestionsContenu, type EncadreVariante, isExerciseBloc } from '@/shared/resource-blocks'
+
+/** Étiquette alphabétique d'un index : 0 → A, 1 → B, … */
+const letter = (i: number): string => String.fromCharCode(65 + i)
 
 /**
  * Rendu visuel (lecture seule) d'une fiche de questions structurée en blocs.
@@ -56,7 +59,7 @@ export function FicheBlocsRenderer({ contenu, audience }: Props) {
 
       {/* Blocs */}
       {contenu.blocs.map((bloc) => {
-        const isExercise = ['qcm', 'texte_a_trous', 'question_ouverte'].includes(bloc.type)
+        const isExercise = isExerciseBloc(bloc.type)
         if (isExercise) qNum++
         return <BlocView key={bloc.id} bloc={bloc} isPro={isPro} num={isExercise ? qNum : undefined} />
       })}
@@ -102,6 +105,15 @@ function BlocView({ bloc, isPro, num }: { bloc: Bloc; isPro: boolean; num?: numb
 
     case 'question_ouverte':
       return <QuestionOuverteView bloc={bloc} isPro={isPro} num={num} />
+
+    case 'appariement':
+      return <AppariementView bloc={bloc} isPro={isPro} num={num} />
+
+    case 'remise_en_ordre':
+      return <RemiseEnOrdreView bloc={bloc} isPro={isPro} num={num} />
+
+    case 'classement':
+      return <ClassementView bloc={bloc} isPro={isPro} num={num} />
 
     default:
       return null
@@ -226,6 +238,157 @@ function TexteATrousView({ bloc, isPro, num }: { bloc: Bloc; isPro: boolean; num
           }
           return <span key={i}>{part}</span>
         })}
+      </span>
+      <AideHint aide={!isPro ? bloc.aide : null} />
+    </ExerciseHeader>
+  )
+}
+
+// ── Appariement (relier deux colonnes) ──────────────────────────────────────────
+
+function AppariementView({ bloc, isPro, num }: { bloc: Bloc; isPro: boolean; num?: number }) {
+  const gauche = bloc.appariement_gauche ?? []
+  const droite = bloc.appariement_droite ?? []
+  const solution = bloc.appariement_solution ?? []
+
+  return (
+    <ExerciseHeader num={num} bloc={bloc}>
+      {bloc.question ?? 'Relie chaque élément à sa bonne réponse.'}
+      <span className="block mt-3 grid grid-cols-[1fr,auto,1fr] gap-3 items-start font-normal">
+        {/* Colonne A */}
+        <span className="block space-y-1.5">
+          {gauche.map((g, i) => (
+            <span key={i} className="flex items-center gap-2 text-sm bg-gray-800/40 border border-gray-700/50 rounded-lg px-3 py-1.5 text-gray-300">
+              <span className="h-5 w-5 rounded-full border border-gray-600 text-gray-400 text-xs font-bold flex items-center justify-center shrink-0">
+                {i + 1}
+              </span>
+              {g}
+              <span className={cn(
+                'ml-auto h-5 min-w-[20px] px-1 rounded border text-xs font-bold flex items-center justify-center shrink-0',
+                isPro && solution[i] != null
+                  ? 'border-green-500 text-green-300 bg-green-500/10'
+                  : 'border-dashed border-gray-600 text-transparent',
+              )}>
+                {isPro && solution[i] != null ? letter(solution[i]) : ' '}
+              </span>
+            </span>
+          ))}
+        </span>
+        <span className="flex items-center justify-center text-gray-600 pt-2"><ArrowRight className="h-4 w-4" /></span>
+        {/* Colonne B */}
+        <span className="block space-y-1.5">
+          {droite.map((d, i) => (
+            <span key={i} className="flex items-center gap-2 text-sm bg-gray-800/40 border border-gray-700/50 rounded-lg px-3 py-1.5 text-gray-300">
+              <span className="h-5 w-5 rounded-full border border-purple-600/40 text-purple-300 text-xs font-bold flex items-center justify-center shrink-0">
+                {letter(i)}
+              </span>
+              {d}
+            </span>
+          ))}
+        </span>
+      </span>
+      <AideHint aide={!isPro ? bloc.aide : null} />
+    </ExerciseHeader>
+  )
+}
+
+// ── Remise en ordre ──────────────────────────────────────────────────────────────
+
+function RemiseEnOrdreView({ bloc, isPro, num }: { bloc: Bloc; isPro: boolean; num?: number }) {
+  const elems = bloc.remise_elements ?? []
+  const ordre = bloc.remise_ordre ?? []
+  // Position (1-based) d'un élément dans la solution : rang[indexElement] = place
+  const rangDe = (i: number) => {
+    const pos = ordre.indexOf(i)
+    return pos === -1 ? null : pos + 1
+  }
+
+  return (
+    <ExerciseHeader num={num} bloc={bloc}>
+      {bloc.question ?? 'Remets les éléments dans le bon ordre.'}
+      <span className="block mt-3 space-y-1.5 font-normal">
+        {elems.map((e, i) => {
+          const rang = isPro ? rangDe(i) : null
+          return (
+            <span key={i} className="flex items-center gap-2 text-sm bg-gray-800/40 border border-gray-700/50 rounded-lg px-3 py-1.5 text-gray-300">
+              <span className="h-5 w-5 rounded-md border border-gray-600 text-gray-400 text-xs font-bold flex items-center justify-center shrink-0">
+                {letter(i)}
+              </span>
+              {e}
+              <span className={cn(
+                'ml-auto h-6 w-6 rounded-md border flex items-center justify-center text-xs font-bold shrink-0',
+                rang != null
+                  ? 'border-green-500 text-green-300 bg-green-500/10'
+                  : 'border-dashed border-gray-600 text-transparent',
+              )}>
+                {rang ?? ' '}
+              </span>
+            </span>
+          )
+        })}
+      </span>
+      {!isPro && (
+        <span className="block mt-2 text-xs text-gray-500 italic font-normal">
+          Écris le numéro d&apos;ordre (1, 2, 3…) dans la case de droite.
+        </span>
+      )}
+      <AideHint aide={!isPro ? bloc.aide : null} />
+    </ExerciseHeader>
+  )
+}
+
+// ── Classement (trier dans des catégories) ──────────────────────────────────────
+
+function ClassementView({ bloc, isPro, num }: { bloc: Bloc; isPro: boolean; num?: number }) {
+  const cats = bloc.classement_categories ?? []
+  const items = bloc.classement_items ?? []
+  const solution = bloc.classement_solution ?? []
+
+  // Items regroupés par catégorie (version prof)
+  const parCat: string[][] = cats.map(() => [])
+  if (isPro) {
+    items.forEach((item, i) => {
+      const c = solution[i]
+      if (c != null && c >= 0 && c < cats.length) parCat[c].push(item)
+    })
+  }
+
+  return (
+    <ExerciseHeader num={num} bloc={bloc}>
+      {bloc.question ?? 'Classe les éléments dans la bonne catégorie.'}
+      {/* Étiquettes à classer (visibles surtout pour l'élève) */}
+      {items.length > 0 && (
+        <span className="block mt-3 flex flex-wrap gap-1.5 font-normal">
+          {items.map((item, i) => (
+            <span key={i} className="text-xs bg-purple-500/15 text-purple-300 border border-purple-600/30 rounded-full px-2.5 py-0.5">
+              {item}
+            </span>
+          ))}
+        </span>
+      )}
+      {/* Colonnes de catégories */}
+      <span
+        className="block mt-3 grid gap-2 font-normal"
+        style={{ gridTemplateColumns: `repeat(${Math.max(1, cats.length)}, minmax(0, 1fr))` }}
+      >
+        {cats.map((cat, ci) => (
+          <span key={ci} className="block rounded-lg border border-gray-700/60 bg-gray-900/40 overflow-hidden">
+            <span className="block text-xs font-bold text-gray-200 bg-gray-800/60 px-2 py-1.5 text-center">
+              {cat}
+            </span>
+            <span className="block p-2 space-y-1 min-h-[60px]">
+              {isPro
+                ? parCat[ci].map((item, i) => (
+                    <span key={i} className="block text-xs bg-green-500/10 border border-green-600/30 text-green-200 rounded px-2 py-1">
+                      {item}
+                    </span>
+                  ))
+                : Array.from({ length: 3 }).map((_, i) => (
+                    <span key={i} className="block border-b border-dashed border-gray-700 h-5" />
+                  ))}
+            </span>
+          </span>
+        ))}
       </span>
       <AideHint aide={!isPro ? bloc.aide : null} />
     </ExerciseHeader>

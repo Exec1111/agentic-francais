@@ -67,6 +67,30 @@ export const ExtraitOeuvreContenuSchema = z.object({
 export type ExtraitOeuvreContenu = z.infer<typeof ExtraitOeuvreContenuSchema>
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// ŒUVRE COMPLÈTE (texte court intégral + appareil pédagogique approfondi)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const OeuvreApprofondissementSchema = z.object({
+  enonce: z.string().describe('Question d\'approfondissement / d\'ouverture (interprétation, mise en réseau)'),
+  pistes: z.string().nullable().describe('PROF ONLY — pistes de réponse / d\'analyse'),
+})
+
+export const OeuvreCompleteContenuSchema = z.object({
+  auteur: z.string(),
+  oeuvre: z.string(),
+  edition_reference: z.string(),
+  pages: z.string().nullable(),
+  introduction: z.string().describe('Présentation contextuelle de l\'œuvre (sera affichée en italique)'),
+  texte: z.string().describe('Le texte intégral exact, numéroté tous les 5 — injecté par le système'),
+  notes_bas_de_page: z.array(NoteBdpSchema).nullable().describe('Glossaire de termes difficiles, null si aucun'),
+  questions: z.array(ExtraitQuestionSchema).min(2).max(8).describe('Questions de compréhension et d\'analyse'),
+  questions_approfondissement: z.array(OeuvreApprofondissementSchema).nullable().describe('Questions d\'ouverture/interprétation, null si aucune'),
+  note_prof: z.string().nullable().describe('PROF ONLY — axes de lecture, comment conduire l\'étude'),
+})
+
+export type OeuvreCompleteContenu = z.infer<typeof OeuvreCompleteContenuSchema>
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // COURS
 // ═══════════════════════════════════════════════════════════════════════════════
 

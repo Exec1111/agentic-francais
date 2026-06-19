@@ -9,10 +9,7 @@ import {
 import { cn } from '@/shared/utils'
 import type { RessourcePaire, RessourceStructuree, RessourceType } from '@/shared/schemas'
 import { RessourceTypeSchema } from '@/shared/schemas'
-import type { FicheQuestionsContenu } from '@/shared/resource-blocks'
-import { FicheBlocsRenderer } from './fiche-blocs/FicheBlocsRenderer'
-import { FicheBlocsEditor } from './fiche-blocs/FicheBlocsEditor'
-import { parseFicheBlocs } from './fiche-blocs/parse'
+import { getBlocResourceUI, MANUAL_BLOC_TYPES, type BlocsContenu } from './blocs-registry'
 
 // ── Config des types ───────────────────────────────────────────────────────────
 
@@ -200,7 +197,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
   const [isEditing, setIsEditing] = useState(false)
   const [editedContent, setEditedContent] = useState('')
   // Brouillon des blocs (fiche_questions). null = ressource non structurée en blocs → mode Markdown.
-  const [blocsDraft, setBlocsDraft] = useState<FicheQuestionsContenu | null>(null)
+  const [blocsDraft, setBlocsDraft] = useState<BlocsContenu | null>(null)
   const [isLoadingDb, setIsLoadingDb] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -209,6 +206,9 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [generatingType, setGeneratingType] = useState<RessourceType | null>(null)
   const [batchRunning, setBatchRunning] = useState(false)
+  // Création d'une ressource vierge (composition manuelle, sans IA)
+  const [creatingBlank, setCreatingBlank] = useState(false)
+  const [blankMenuOpen, setBlankMenuOpen] = useState(false)
   const [suggestedTypes, setSuggestedTypes] = useState<RessourceType[]>([])
   // Menu déroulant "Autre type…" : permet de générer n'importe quel type déclaré,
   // au-delà des suggestions liées au type d'activité.
@@ -223,6 +223,9 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
 
   // Ref pour détecter un vrai changement de ressource (vs mise à jour de pairs après save)
   const currentResourceIdRef = useRef<string | null>(null)
+  // Id d'une ressource à ouvrir directement en mode édition après sa sélection
+  // (utilisé par la création d'une fiche vierge, qui doit basculer en édition).
+  const pendingEditRef = useRef<string | null>(null)
   // Sérialisation des blocs au dernier état sauvegardé (détection de modifications)
   const savedBlocsRef = useRef<string>('')
 
@@ -311,10 +314,14 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
       currentResourceIdRef.current = resource.id
       setEditedContent(resource.contenu_markdown)
       // Tente de parser le contenu en blocs (fiche_questions). null → mode Markdown.
-      const blocs = resource.type === 'fiche_questions' ? parseFicheBlocs(resource.contenu_json) : null
+      const blocUI = getBlocResourceUI(resource.type)
+      const blocs = blocUI ? blocUI.parse(resource.contenu_json) : null
       setBlocsDraft(blocs)
       savedBlocsRef.current = blocs ? JSON.stringify(blocs) : ''
-      setIsEditing(false)
+      // Ouverture directe en édition si demandée (fiche vierge à composer)
+      const openInEdit = pendingEditRef.current === resource.id
+      pendingEditRef.current = null
+      setIsEditing(openInEdit)
       setSaveSuccess(false)
       setConfirmDelete(false)
     }
@@ -403,6 +410,35 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
     setBatchRunning(false)
   }, [pairs, suggestedTypes, generateOne])
 
+  // ── Création d'une ressource vierge (composition manuelle, sans IA) ────────
+  const handleCreateBlank = useCallback(async (type: RessourceType) => {
+    setCreatingBlank(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/resources/blank', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, activiteId: context.activiteId }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`)
+
+      const paire = data as RessourcePaire
+      // Demande l'ouverture en édition de la version prof une fois la ressource sélectionnée
+      pendingEditRef.current = paire.professeur.id
+      setActiveAudience('professeur')
+      setPairs(prev => {
+        const next = [...prev, paire]
+        setSelectedIdx(next.length - 1)
+        return next
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur lors de la création de la fiche vierge')
+    } finally {
+      setCreatingBlank(false)
+    }
+  }, [context.activiteId])
+
   // ── Dérivés ────────────────────────────────────────────────────────────────
 
   const generatedTypes = pairs.map(p => p.professeur.type)
@@ -419,13 +455,14 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
   const currentResource = currentPaire
     ? (effectiveAudience === 'eleve' && currentPaire.eleve ? currentPaire.eleve : currentPaire.professeur)
     : null
-  // Mode blocs actif si la ressource courante est une fiche_questions structurée
-  const isBlocksMode = blocsDraft !== null && currentResource?.type === 'fiche_questions'
+  // Mode blocs actif si la ressource courante est d'un type « à blocs » structuré
+  const blocUI = currentResource ? getBlocResourceUI(currentResource.type) : undefined
+  const isBlocksMode = blocsDraft !== null && !!blocUI
   const hasUnsavedChanges = isBlocksMode
     ? JSON.stringify(blocsDraft) !== savedBlocsRef.current
     : isEditing && currentResource !== null && editedContent !== currentResource.contenu_markdown
 
-  const isGeneratingAny = generatingType !== null || batchRunning
+  const isGeneratingAny = generatingType !== null || batchRunning || creatingBlank
 
   // ── Sauvegarde du Markdown édité ──────────────────────────────────────────
 
@@ -454,14 +491,19 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
       // Markdown à jour : renvoyé par le serveur en mode blocs, sinon le contenu édité
       const nextMarkdown = isBlocksMode ? (data.contenu_markdown as string) : editedContent
       const nextJson = isBlocksMode ? (blocsDraft as unknown as Record<string, unknown>) : undefined
+      // Version jumelle resynchronisée par le serveur (prof → élève en mode blocs)
+      const pairedUpdated = isBlocksMode ? (data.paired as RessourceStructuree | undefined) : undefined
 
       // Mettre à jour pairs en mémoire sans déclencher de reset d'édition
       setPairs(prev => prev.map((paire, idx) => {
         if (idx !== selectedIdx) return paire
-        const apply = (r: RessourceStructuree) =>
-          r.id === currentResource.id
-            ? { ...r, contenu_markdown: nextMarkdown, ...(nextJson ? { contenu_json: nextJson } : {}) }
-            : r
+        const apply = (r: RessourceStructuree) => {
+          if (r.id === currentResource.id)
+            return { ...r, contenu_markdown: nextMarkdown, ...(nextJson ? { contenu_json: nextJson } : {}) }
+          if (pairedUpdated && r.id === pairedUpdated.id)
+            return { ...r, contenu_markdown: pairedUpdated.contenu_markdown, contenu_json: pairedUpdated.contenu_json }
+          return r
+        }
         return {
           professeur: apply(paire.professeur),
           eleve: paire.eleve ? apply(paire.eleve) : paire.eleve,
@@ -706,6 +748,42 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
                     )}
                   </div>
                 )}
+
+                {/* Création manuelle : ressource vierge à composer bloc par bloc (sans IA) */}
+                <div className="relative">
+                  <button
+                    onClick={() => setBlankMenuOpen(v => !v)}
+                    disabled={isGeneratingAny}
+                    title="Créer une ressource vierge à composer manuellement, bloc par bloc"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-gray-700 text-xs text-gray-400 hover:border-teal-600/50 hover:text-teal-300 disabled:opacity-40 transition-all"
+                  >
+                    {creatingBlank
+                      ? <Loader2 className="h-3 w-3 animate-spin" />
+                      : <Plus className="h-3 w-3" />}
+                    Créer vierge
+                    <span className="text-gray-600 text-[9px]">▾</span>
+                  </button>
+
+                  {blankMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-20" onClick={() => setBlankMenuOpen(false)} />
+                      <div className="absolute left-0 top-full mt-1 z-30 w-48 rounded-lg border border-gray-700 bg-gray-900 shadow-xl p-1">
+                        <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-gray-500">Composition manuelle</p>
+                        {MANUAL_BLOC_TYPES.map(type => (
+                          <button
+                            key={type}
+                            onClick={() => { setBlankMenuOpen(false); handleCreateBlank(type) }}
+                            disabled={isGeneratingAny}
+                            className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-md text-xs text-gray-300 hover:bg-gray-800 disabled:opacity-40 transition-colors"
+                          >
+                            <Plus className="h-3 w-3 text-teal-400 shrink-0" />
+                            {getBlocResourceUI(type)?.blankLabel ?? type}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
 
               {/* Instructions complémentaires (optionnel) — portée : prochaine génération */}
@@ -758,7 +836,8 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
                       <div>
                         <h4 className="font-bold text-white text-base">Aucune ressource générée</h4>
                         <p className="text-sm text-gray-500 mt-1.5 max-w-xs leading-relaxed">
-                          Cliquez sur un type ci-dessus pour générer une fiche élève + corrigé professeur en un clic.
+                          Cliquez sur un type ci-dessus pour générer une fiche élève + corrigé professeur en un clic,
+                          ou choisissez <span className="text-teal-400">Créer vierge</span> pour composer vous-même une ressource bloc par bloc.
                         </p>
                       </div>
                       {!context.activiteId && (
@@ -899,12 +978,12 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
 
                   {/* Zone de contenu */}
                   <div className="flex-1 overflow-y-auto p-5 scrollbar-thin">
-                    {isBlocksMode && blocsDraft ? (
-                      // ── Fiche de questions structurée en blocs ──
+                    {isBlocksMode && blocsDraft && blocUI ? (
+                      // ── Ressource structurée en blocs (fiche_questions, cours…) ──
                       !isEditing ? (
-                        <FicheBlocsRenderer contenu={blocsDraft} audience={effectiveAudience} />
+                        <blocUI.Renderer contenu={blocsDraft} audience={effectiveAudience} />
                       ) : (
-                        <FicheBlocsEditor contenu={blocsDraft} onChange={setBlocsDraft} />
+                        <blocUI.Editor contenu={blocsDraft} onChange={setBlocsDraft} />
                       )
                     ) : !isEditing ? (
                       <div
