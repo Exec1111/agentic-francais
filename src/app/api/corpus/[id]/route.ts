@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCorpusById, deleteCorpusItem } from '@/backend/repositories/corpus-repo'
-import { writeGeneratedCorpusFile, IA_AUTEUR } from '@/backend/corpus-writer'
+import { writeGeneratedCorpusFile, writeUserCorpusFile, deleteCorpusFile, IA_AUTEUR, DEPOT_VERIFIED_BY } from '@/backend/corpus-writer'
 import { syncCorpusFromFiles } from '@/backend/corpus-importer'
 
 export async function GET(
@@ -20,9 +20,11 @@ export async function GET(
 }
 
 /**
- * Édition d'un texte généré par l'IA (titre et/ou contenu).
- * Réservé aux items créés par l'Atelier : les textes littéraires réels
- * ne sont pas modifiables (leur fidélité à la source fait foi).
+ * Édition d'un texte (titre et/ou contenu).
+ * Autorisé pour les textes créés par l'Atelier (auteur = IA) et pour les textes
+ * déposés par l'enseignant (provenance « dépôt »), qu'il peut rogner/nettoyer.
+ * Les textes littéraires vérifiés à une source restent non modifiables (leur
+ * fidélité fait foi).
  */
 export async function PATCH(
   request: NextRequest,
@@ -33,9 +35,11 @@ export async function PATCH(
     if (!item) {
       return NextResponse.json({ error: `Item corpus introuvable: ${params.id}` }, { status: 404 })
     }
-    if (item.auteur !== IA_AUTEUR) {
+    const isIa = item.auteur === IA_AUTEUR
+    const isDepot = item.verified_by === DEPOT_VERIFIED_BY
+    if (!isIa && !isDepot) {
       return NextResponse.json(
-        { error: 'Seuls les textes générés par l\'IA sont éditables' },
+        { error: 'Seuls les textes générés par l\'IA ou déposés par l\'enseignant sont éditables' },
         { status: 403 },
       )
     }
@@ -46,17 +50,36 @@ export async function PATCH(
 
     // Réécrire le fichier source (même id), puis supprimer la ligne en base
     // avant le sync : le chemin INSERT de l'importeur respecte le frontmatter
-    // (verified: true), alors que le chemin UPDATE forcerait verified = 0.
-    writeGeneratedCorpusFile({
-      id: item.id,
-      titre: newTitre,
-      annee_publication: item.annee_publication,
-      niveaux: item.niveaux,
-      genres: item.genres,
-      themes: item.themes,
-      texte: newTexte,
-      verified_by: 'professeur',
-    })
+    // (verified, provenance), alors que le chemin UPDATE forcerait verified = 0.
+    if (isIa) {
+      writeGeneratedCorpusFile({
+        id: item.id,
+        titre: newTitre,
+        annee_publication: item.annee_publication,
+        niveaux: item.niveaux,
+        genres: item.genres,
+        themes: item.themes,
+        texte: newTexte,
+        verified_by: 'professeur',
+      })
+    } else {
+      // Texte déposé : on conserve l'auteur/l'œuvre/la référence réels.
+      writeUserCorpusFile({
+        id: item.id,
+        type: item.type,
+        auteur: item.auteur,
+        oeuvre: item.oeuvre,
+        titre: newTitre,
+        annee_publication: item.annee_publication,
+        edition_reference: item.edition_reference,
+        pages: item.pages,
+        niveaux: item.niveaux,
+        genres: item.genres,
+        themes: item.themes,
+        domaine_public: item.domaine_public,
+        texte: newTexte,
+      })
+    }
     deleteCorpusItem(item.id)
     syncCorpusFromFiles(true)
 
@@ -80,6 +103,10 @@ export async function DELETE(
 ) {
   try {
     const deleted = deleteCorpusItem(params.id)
+    // Supprimer aussi le fichier source : sans ça, le texte réapparaîtrait au
+    // prochain syncCorpusFromFiles (les .md sont la source de vérité du corpus).
+    // Idempotent — sans effet pour les items importés manuellement sans fichier.
+    deleteCorpusFile(params.id)
     if (!deleted) {
       return NextResponse.json({ error: `Item corpus introuvable: ${params.id}` }, { status: 404 })
     }

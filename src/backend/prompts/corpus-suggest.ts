@@ -50,9 +50,13 @@ Réponds UNIQUEMENT avec ce tableau JSON (2 éléments max) :
     "extrait_recommande": "Description précise de l'extrait recommandé",
     "pourquoi": "Justification pédagogique en 1 phrase",
     "niveau_difficulte": "accessible",
-    "mots_approximatifs": 300
+    "mots_approximatifs": 300,
+    "genres": ["genre1", "genre2"],
+    "themes": ["theme1", "theme2"],
+    "annee_publication": 1759
   }
-]`,
+]
+Pour "genres", "themes" et "annee_publication", donne les vraies métadonnées de l'œuvre (l'année de première publication). Mets [] / null seulement si tu ne les connais pas.`,
     },
   ]
 }

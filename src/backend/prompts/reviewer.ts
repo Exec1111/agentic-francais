@@ -76,10 +76,54 @@ RÈGLES DE RATTACHEMENT :
 - Ne mets dans le "suggestions" racine QUE des améliorations qui ne corrigent aucun problème listé (idées de bonification).
 - Ne duplique pas une même suggestion à la fois sous un problème et dans le tableau racine.`
 
+/** Réduit un texte à une seule ligne et le tronque à n caractères. */
+function truncate(s: string, n: number): string {
+  const clean = s.replace(/\s+/g, ' ').trim()
+  return clean.length > n ? clean.slice(0, n) + '…' : clean
+}
+
+/**
+ * Vue compacte de la séquence pour le reviewer.
+ *
+ * Le `JSON.stringify` complet (ids, ressources vides, corpus_status,
+ * différenciation, consignes multi-paragraphes…) sature la fenêtre de contexte
+ * d'Ollama : la séquence est alors tronquée du prompt et le modèle « ne la voit
+ * plus » (réponse "en attente de la séquence"). On ne garde que ce qui sert aux
+ * 7 critères d'évaluation — en conservant les TITRES D'ACTIVITÉS mot pour mot,
+ * dont les suggestions ont besoin comme cible exacte.
+ */
+export function condenseSequenceForReview(sequence: Sequence): string {
+  const lines: string[] = []
+  lines.push(`SÉQUENCE : "${sequence.titre}" — ${sequence.niveau} — thème : ${sequence.theme}`)
+  if (sequence.problematique) lines.push(`Problématique : ${sequence.problematique}`)
+  if (sequence.objectifs?.length) {
+    lines.push('Objectifs de la séquence :')
+    for (const o of sequence.objectifs) lines.push(`  - ${o}`)
+  }
+  if (sequence.competences?.length) {
+    lines.push('Compétences :')
+    for (const c of sequence.competences) lines.push(`  - ${c}`)
+  }
+  if (sequence.evaluation_finale) lines.push(`Évaluation finale : ${sequence.evaluation_finale}`)
+  lines.push('')
+
+  for (const s of sequence.seances) {
+    lines.push(`SÉANCE ${s.numero} — "${s.titre}" (${s.duree} min)`)
+    if (s.objectifs?.length) lines.push(`  Objectifs : ${s.objectifs.join(' ; ')}`)
+    for (const a of s.activites) {
+      lines.push(`  • "${a.titre}" [${a.type}, ${a.duree} min]`)
+      if (a.consigne) lines.push(`      consigne : ${truncate(a.consigne, 200)}`)
+    }
+    lines.push('')
+  }
+
+  return lines.join('\n').trimEnd()
+}
+
 export function buildUserPrompt(sequence: Sequence, previousReview?: Review | null): string {
   const base = `Analyse cette séquence pédagogique complète :
 
-${JSON.stringify(sequence, null, 2)}`
+${condenseSequenceForReview(sequence)}`
 
   if (!previousReview) return base
 

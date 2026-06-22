@@ -63,7 +63,11 @@ describe('useSequenceEditor Reducer', () => {
       sequence: mockSequence
     })
 
-    expect(nextState.current).toEqual(mockSequence)
+    // SET_SEQUENCE enrichit la séquence via ensureIds (id stables sur séances /
+    // activités pour le glisser-déposer) → superset de l'entrée, pas égalité stricte.
+    expect(nextState.current).toMatchObject(mockSequence)
+    expect(nextState.current?.seances[0].id).toBeTruthy()
+    expect(nextState.current?.seances[0].activites[0].id).toBeTruthy()
     expect(nextState.past).toEqual([])
     expect(nextState.future).toEqual([])
     expect(nextState.isDirty).toBe(false)

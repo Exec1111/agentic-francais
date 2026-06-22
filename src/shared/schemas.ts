@@ -45,6 +45,11 @@ export const CorpusSuggestionSchema = z.object({
   niveau_difficulte: z.enum(['accessible', 'standard', 'exigeant']),
   // nullable (pas optional) : OpenAI structured outputs exige que TOUS les champs soient dans required
   mots_approximatifs: z.number().nullable(),
+  // Métadonnées de l'œuvre suggérée — servent à pré-remplir le dépôt du texte.
+  // Nullable (même contrainte structured outputs) ; lues avec un repli ?? [] / année courante.
+  genres: z.array(z.string()).nullable(),
+  themes: z.array(z.string()).nullable(),
+  annee_publication: z.number().nullable(),
 })
 
 // Schéma de sortie du générateur de texte original

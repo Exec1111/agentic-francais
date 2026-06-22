@@ -355,9 +355,11 @@ async function searchCorpusForActivity(
       schema: CorpusSuggestionSchema,
       schemaName: 'corpus_suggestion',
     })
-    const parsed = CorpusSuggestionSchema.safeParse(
-      JSON.parse(resp.content.replace(/```json\n?|```/g, '').trim())
-    )
+    const parsed = CorpusSuggestionSchema.safeParse({
+      // Défauts pour un modèle libre qui omettrait les clés nullable.
+      genres: null, themes: null, annee_publication: null,
+      ...JSON.parse(resp.content.replace(/```json\n?|```/g, '').trim()),
+    })
     if (parsed.success) {
       return { corpus_status: 'manquant', corpus_suggestion: parsed.data }
     }

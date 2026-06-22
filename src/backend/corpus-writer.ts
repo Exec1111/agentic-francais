@@ -8,6 +8,15 @@ const CORPUS_DIR = path.join(process.cwd(), 'data', 'corpus')
 export { IA_AUTEUR }
 export const IA_EDITION_REFERENCE = "Texte inédit généré par l'Atelier — à relire avant usage en classe"
 
+/**
+ * Marqueur de provenance des textes déposés par l'enseignant (collage, .txt,
+ * .docx, PDF couche-texte). Sert à deux choses :
+ *  - les rendre éditables via PATCH (au même titre que les textes IA),
+ *  - signaler que leur fidélité n'a pas été vérifiée à une source.
+ */
+export const DEPOT_VERIFIED_BY = 'depot-enseignant'
+export const DEPOT_EDITION_REFERENCE = "Déposé par l'enseignant — fidélité non vérifiée"
+
 export interface GeneratedCorpusMeta {
   id: string
   titre: string
@@ -74,4 +83,120 @@ export function writeGeneratedCorpusFile(meta: GeneratedCorpusMeta): string {
   const filepath = path.join(CORPUS_DIR, `${meta.id}.md`)
   fs.writeFileSync(filepath, buildGeneratedCorpusMarkdown(meta), 'utf-8')
   return filepath
+}
+
+export interface UserCorpusMeta {
+  id: string
+  type?: 'extrait' | 'oeuvre_complete'
+  auteur: string
+  oeuvre: string
+  titre: string
+  annee_publication: number
+  edition_reference?: string
+  pages?: string
+  niveaux: string[]
+  genres: string[]
+  themes: string[]
+  domaine_public: boolean
+  texte: string
+  /** Provenance — DEPOT_VERIFIED_BY par défaut (rend le texte éditable). */
+  verified_by?: string
+}
+
+/**
+ * Construit le Markdown d'un texte RÉEL déposé par l'enseignant (œuvre attribuée
+ * à son auteur). Contrairement aux textes IA : `verified: false` (la fidélité à la
+ * source n'est pas garantie) et l'auteur/l'œuvre sont conservés tels quels.
+ */
+export function buildUserCorpusMarkdown(meta: UserCorpusMeta): string {
+  const lines = [
+    '---',
+    `id: "${meta.id}"`,
+    `type: "${meta.type ?? 'extrait'}"`,
+    `auteur: "${sanitizeScalar(meta.auteur)}"`,
+    `oeuvre: "${sanitizeScalar(meta.oeuvre)}"`,
+    `titre: "${sanitizeScalar(meta.titre)}"`,
+    `annee_publication: ${meta.annee_publication}`,
+    `edition_reference: "${sanitizeScalar(meta.edition_reference ?? DEPOT_EDITION_REFERENCE)}"`,
+  ]
+  if (meta.pages) lines.push(`pages: "${sanitizeScalar(meta.pages)}"`)
+  lines.push(
+    `niveaux: ${toFrontmatterArray(meta.niveaux)}`,
+    `genres: ${toFrontmatterArray(meta.genres)}`,
+    `themes: ${toFrontmatterArray(meta.themes)}`,
+    `domaine_public: ${meta.domaine_public ? 'true' : 'false'}`,
+    'verified: false',
+    `verified_by: "${sanitizeScalar(meta.verified_by ?? DEPOT_VERIFIED_BY)}"`,
+    `verified_at: "${new Date().toISOString()}"`,
+    '---',
+    '',
+    meta.texte.trim(),
+    '',
+  )
+  return lines.join('\n')
+}
+
+/** Écrit le fichier d'un texte déposé dans data/corpus/ et retourne son chemin absolu. */
+export function writeUserCorpusFile(meta: UserCorpusMeta): string {
+  if (!fs.existsSync(CORPUS_DIR)) fs.mkdirSync(CORPUS_DIR, { recursive: true })
+  const filepath = path.join(CORPUS_DIR, `${meta.id}.md`)
+  fs.writeFileSync(filepath, buildUserCorpusMarkdown(meta), 'utf-8')
+  return filepath
+}
+
+/**
+ * Supprime le fichier source `data/corpus/<id>.md` d'un item du corpus.
+ *
+ * Indispensable au DELETE : les fichiers `.md` sont la source de vérité du
+ * corpus (corpus-importer.syncCorpusFromFiles ré-INSÈRE tout fichier présent).
+ * Effacer la seule ligne en base laisserait le fichier réapparaître au prochain
+ * sync (textes IA générés comme textes déposés par l'enseignant).
+ *
+ * Idempotent : ne fait rien si le fichier est absent (cas des items importés
+ * manuellement, qui n'ont pas été écrits ici). Vise exclusivement l'`id`
+ * demandé, jamais un autre fichier du dossier. Retourne true si un fichier a
+ * effectivement été supprimé.
+ */
+export function deleteCorpusFile(id: string): boolean {
+  const filepath = path.join(CORPUS_DIR, `${id}.md`)
+  if (!fs.existsSync(filepath)) return false
+  fs.unlinkSync(filepath)
+  return true
+}
+
+/**
+ * Bascule le statut `verified` (et `verified_by`/`verified_at`) dans le
+ * frontmatter du fichier `data/corpus/<id>.md`, EN PRÉSERVANT tout le reste.
+ *
+ * On édite les lignes à la main plutôt que de réécrire via un writer : les
+ * writers reconstruisent un frontmatter minimal et perdraient les champs annexes
+ * des textes littéraires (editeur, source_url, source_verified, pages…).
+ *
+ * Le fichier étant la source de vérité, écrire le flag ici le rend durable : un
+ * sync ultérieur ne le rebascule pas. Retourne true si le fichier existait.
+ */
+export function setCorpusFileVerified(
+  id: string,
+  verified: boolean,
+  verifiedBy = 'professeur',
+): boolean {
+  const filepath = path.join(CORPUS_DIR, `${id}.md`)
+  if (!fs.existsSync(filepath)) return false
+
+  const raw = fs.readFileSync(filepath, 'utf-8')
+  const fm = raw.match(/^(---\r?\n)([\s\S]*?)(\r?\n---)/)
+  if (!fm) return false
+
+  let front = fm[2]
+  const setLine = (key: string, value: string) => {
+    const re = new RegExp(`^${key}:.*$`, 'm')
+    front = re.test(front) ? front.replace(re, `${key}: ${value}`) : `${front}\n${key}: ${value}`
+  }
+  setLine('verified', verified ? 'true' : 'false')
+  setLine('verified_by', `"${sanitizeScalar(verifiedBy)}"`)
+  setLine('verified_at', `"${new Date().toISOString()}"`)
+
+  const rebuilt = `${fm[1]}${front}${fm[3]}`
+  fs.writeFileSync(filepath, raw.replace(fm[0], () => rebuilt), 'utf-8')
+  return true
 }

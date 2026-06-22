@@ -76,13 +76,20 @@ let lastSyncAt = 0
 
 /**
  * Détecte si le dossier corpus a été modifié depuis le dernier sync.
- * Sur tous les OS, ajouter/supprimer un fichier met à jour le mtime du dossier.
- * Coût : un seul appel fs.statSync, négligeable.
+ *
+ * Chemin rapide : ajouter/supprimer un fichier met à jour le mtime du dossier.
+ * Repli : éditer le CONTENU d'un fichier existant (ex. passer verified à true
+ * dans le frontmatter) ne bouge PAS le mtime du dossier sur la plupart des OS.
+ * On compare donc aussi le mtime de chaque .md pour détecter ces éditions.
  */
 function corpusDirChanged(): boolean {
   try {
-    const mtime = fs.statSync(CORPUS_DIR).mtimeMs
-    return mtime > lastSyncAt
+    if (fs.statSync(CORPUS_DIR).mtimeMs > lastSyncAt) return true
+    for (const f of fs.readdirSync(CORPUS_DIR)) {
+      if (!f.endsWith('.md')) continue
+      if (fs.statSync(path.join(CORPUS_DIR, f)).mtimeMs > lastSyncAt) return true
+    }
+    return false
   } catch {
     return true // dossier inexistant → on laisse syncCorpusFromFiles le créer
   }
@@ -123,8 +130,10 @@ export function syncCorpusFromFiles(force = false): SyncResult {
       processedIds.add(id)
 
       const existing = db
-        .prepare('SELECT id, checksum FROM corpus WHERE id = ?')
-        .get(id) as { id: string; checksum: string } | undefined
+        .prepare('SELECT id, checksum, verified, verified_by, verified_at FROM corpus WHERE id = ?')
+        .get(id) as
+        | { id: string; checksum: string; verified: number; verified_by: string | null; verified_at: string | null }
+        | undefined
 
       if (!existing) {
         db.prepare(`
@@ -185,7 +194,26 @@ export function syncCorpusFromFiles(force = false): SyncResult {
         result.updated++
         console.log(`[Corpus] Mis à jour: ${id} (contenu modifié → re-vérification requise)`)
       } else {
-        result.unchanged++
+        // Corps identique (checksum inchangé) : on honore tout de même un
+        // changement du statut "verified" dans le frontmatter. Sans ça, valider
+        // un texte après import serait impossible — le checksum ne porte que sur
+        // le corps, donc passer verified à true ne déclencherait aucune écriture.
+        const metaVerified = meta.verified ? 1 : 0
+        const metaVerifiedBy = (meta.verified_by as string) ?? null
+        const metaVerifiedAt = (meta.verified_at as string) ?? null
+        if (
+          existing.verified !== metaVerified ||
+          (existing.verified_by ?? null) !== metaVerifiedBy ||
+          (existing.verified_at ?? null) !== metaVerifiedAt
+        ) {
+          db.prepare(
+            'UPDATE corpus SET verified = ?, verified_by = ?, verified_at = ?, updated_at = ? WHERE id = ?'
+          ).run(metaVerified, metaVerifiedBy, metaVerifiedAt, now(), id)
+          result.updated++
+          console.log(`[Corpus] Statut "verified" mis à jour: ${id} → ${metaVerified ? 'vérifié' : 'non vérifié'}`)
+        } else {
+          result.unchanged++
+        }
       }
     } catch (err) {
       const msg = `Erreur fichier ${filename}: ${err instanceof Error ? err.message : err}`

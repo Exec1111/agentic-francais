@@ -33,7 +33,12 @@
       "Bash(cp data/atelier.db-wal _mtest.db-wal)",
       "Bash(cp data/atelier.db-shm _mtest.db-shm)",
       "Bash(node -e ' *)",
-      "PowerShell(npx tsc --noEmit 2>&1)"
+      "PowerShell(npx tsc --noEmit 2>&1)",
+      "Read(//c/Users/julie/.claude/**)",
+      "PowerShell(npx vitest run src/backend/__tests__/corpus-upload.test.ts 2>&1)",
+      "Bash(rm -f data/corpus/user-essai-collage-mql1qgac.md data/corpus/user-essai-fichier-mql1qgbn.md data/corpus/user-edit-test-mql1qtgb.md)",
+      "Bash(ls data/corpus/user-*.md)",
+      "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -First 20; Write-Output \"tsc exit=$LASTEXITCODE\"; Write-Output \"=== git status ===\"; git status --short)"
     ]
   }
 }

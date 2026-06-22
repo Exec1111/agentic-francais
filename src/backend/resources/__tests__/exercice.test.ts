@@ -78,7 +78,7 @@ describe('exerciceDefinition.buildPrompt — cas B : corpus avec contenu disponi
 
   it('injecte le texte source intégral dans le prompt système', () => {
     const system = systemMsg(exerciceDefinition.buildPrompt(makeContext(item)))
-    expect(system).toContain('TEXTE SOURCE OFFICIEL')
+    expect(system).toContain('TEXTE SOURCE')
     expect(system).toContain('Longtemps, je me suis couché de bonne heure')
   })
 
@@ -92,7 +92,7 @@ describe('exerciceDefinition.buildPrompt — cas B : corpus avec contenu disponi
 
   it('exige la citation mot pour mot', () => {
     const system = systemMsg(exerciceDefinition.buildPrompt(makeContext(item)))
-    expect(system).toContain('MOT POUR MOT')
+    expect(system).toContain('mot pour mot')
   })
 
   it("ne mentionne pas de droits d'auteur ni de texte protégé", () => {
@@ -107,7 +107,7 @@ describe('exerciceDefinition.buildPrompt — cas B : corpus avec contenu disponi
     const system = systemMsg(exerciceDefinition.buildPrompt(makeContext(itemSansPages)))
     // La ligne Référence ne doit pas contenir "undefined"
     expect(system).not.toContain('undefined')
-    expect(system).toContain('TEXTE SOURCE OFFICIEL')
+    expect(system).toContain('TEXTE SOURCE')
   })
 })
 

@@ -65,8 +65,12 @@ Réponds UNIQUEMENT avec ce JSON (rien d'autre) :
   "extrait_recommande": "Description précise de l'extrait (partie, chapitre, pages approximatives dans une édition courante)",
   "pourquoi": "Justification pédagogique en 1-2 phrases",
   "niveau_difficulte": "accessible",
-  "mots_approximatifs": 400
-}`,
+  "mots_approximatifs": 400,
+  "genres": ["genre1", "genre2"],
+  "themes": ["theme1", "theme2"],
+  "annee_publication": 1759
+}
+Pour "genres", "themes" et "annee_publication", donne les vraies métadonnées de l'œuvre (année de première publication). Mets [] / null si tu ne les connais pas.`,
     },
   ]
 }

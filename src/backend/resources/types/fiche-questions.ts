@@ -54,6 +54,11 @@ Auteur     : ${item.auteur}
 Référence  : ${item.edition_reference}${item.pages ? ` — pages ${item.pages}` : ''}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
         ).join('\n')
+        // Garde-fou anti-hallucination : sans le texte sous les yeux, le LLM ne
+        // doit PAS inventer de citations. On l'oriente vers de l'analyse.
+        corpusBlock += `
+
+⚠️ Texte protégé par les droits d'auteur : il n'est pas reproduit ci-dessus. Conçois des exercices d'analyse sans citer le texte verbatim ni en reproduire de passage — les élèves auront le texte en main en classe. Appuie-toi sur la référence et les notions de la séquence ; n'invente jamais de citation.`
       }
     }
     return buildMessages(ctx, corpusBlock)

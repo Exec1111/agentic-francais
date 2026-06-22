@@ -18,6 +18,9 @@ export type CorpusSuggestResponse = {
     pourquoi: string
     niveau_difficulte: 'accessible' | 'standard' | 'exigeant'
     mots_approximatifs: number | null
+    genres: string[] | null
+    themes: string[] | null
+    annee_publication: number | null
   }[]
 }
 
@@ -72,7 +75,11 @@ export async function POST(request: NextRequest) {
         const parsed = JSON.parse(cleaned)
         if (Array.isArray(parsed)) {
           for (const item of parsed) {
-            const validated = CorpusSuggestionSchema.safeParse(item)
+            // Défauts pour tolérer un modèle libre (Ollama) qui omettrait
+            // les clés nullable : le schéma les exige présentes (pas optional).
+            const validated = CorpusSuggestionSchema.safeParse({
+              genres: null, themes: null, annee_publication: null, ...item,
+            })
             if (validated.success) suggestions.push(validated.data)
           }
         }

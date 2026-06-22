@@ -5,16 +5,17 @@ import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion
 import {
   BookOpen, Target, Award, Clock, FileText, Plus, Trash2, X, Search,
   ChevronRight, Undo2, Redo2, AlertTriangle,
-  RefreshCw, Loader2, Sparkles, User, GraduationCap, Lock, Eye, GripVertical,
+  RefreshCw, Loader2, Sparkles, User, GraduationCap, Lock, Eye, GripVertical, Upload,
 } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import { EditableText } from './EditableText'
 import { EditableList } from './EditableList'
 import { ResourcePanel } from './ResourcePanel'
 import { CorpusViewer } from './CorpusViewer'
+import { TextDepositPanel } from './TextDepositPanel'
 import type { ResourcePanelContext } from './ResourcePanel'
 import type { useSequenceEditor, SequencePath } from '@/frontend/hooks/useSequenceEditor'
-import type { Activite } from '@/shared/schemas'
+import type { Activite, CorpusItem } from '@/shared/schemas'
 import { ACTIVITES_CORPUS, inferCorpusRefs, resolveActiviteCorpusRefs } from '@/shared/corpus-match'
 
 // Config visuelle des types de ressources IA (utilisée dans l'accordéon)
@@ -146,6 +147,31 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
     for (const it of corpusItems) map[it.id] = it
     return map
   }, [corpusItems])
+
+  // Dépôt d'un texte depuis le badge « Texte manquant » d'une activité :
+  // (1) enrichit le cache de métadonnées partagé, (2) ajoute le texte au corpus
+  // de la séquence. L'association à l'activité elle-même est faite par ActiviteBlock.
+  const handleCorpusDeposited = useCallback((item: CorpusItem) => {
+    setCorpusItems((prev) =>
+      prev.some((c) => c.id === item.id)
+        ? prev
+        : [
+            ...prev,
+            {
+              id: item.id,
+              auteur: item.auteur,
+              oeuvre: item.oeuvre,
+              titre: item.titre,
+              has_content: item.contenu !== '',
+              domaine_public: item.domaine_public,
+            },
+          ],
+    )
+    editor.updateField(
+      { level: 'sequence', field: 'corpus_refs' },
+      Array.from(new Set([...(sequence?.corpus_refs ?? []), item.id])),
+    )
+  }, [editor, sequence])
 
   // Enrichit le contexte minimal fourni par ActiviteBlock avec les données
   // de la séquence complète (problématique, objectifs, progression…) afin que
@@ -455,6 +481,7 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
               refreshKey={refreshKey}
               onViewCorpus={setViewCorpusId}
               corpusById={corpusById}
+              onCorpusDeposited={handleCorpusDeposited}
             />
           ))}
         </Reorder.Group>
@@ -504,6 +531,7 @@ function SeanceBlock({
   refreshKey,
   onViewCorpus,
   corpusById,
+  onCorpusDeposited,
 }: {
   seance: any
   seanceIndex: number
@@ -518,6 +546,7 @@ function SeanceBlock({
   refreshKey: Record<string, number>
   onViewCorpus: (ref: string) => void
   corpusById: Record<string, CorpusMeta>
+  onCorpusDeposited: (item: CorpusItem) => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const dragControls = useDragControls()
@@ -639,6 +668,7 @@ function SeanceBlock({
                     refreshTrigger={refreshKey[activite.id ?? ''] ?? 0}
                     onViewCorpus={onViewCorpus}
                     corpusById={corpusById}
+                    onCorpusDeposited={onCorpusDeposited}
                   />
                 ))}
               </Reorder.Group>
@@ -685,6 +715,7 @@ function ActiviteBlock({
   refreshTrigger,
   onViewCorpus,
   corpusById,
+  onCorpusDeposited,
 }: {
   activite: Activite
   seanceIndex: number
@@ -703,6 +734,7 @@ function ActiviteBlock({
   refreshTrigger: number
   onViewCorpus: (ref: string) => void
   corpusById: Record<string, CorpusMeta>
+  onCorpusDeposited: (item: CorpusItem) => void
 }) {
   const [collapsed, setCollapsed] = useState(true)
   const dragControls = useDragControls()
@@ -883,11 +915,20 @@ function ActiviteBlock({
         corpusRefs={effectiveCorpusRefs}
         suggestion={activite.corpus_suggestion}
         sequenceCorpusRefs={sequenceCorpusRefs}
+        niveau={niveau}
         onAssociate={(ref) => editor.replaceActivite(seanceIndex, activiteIndex, {
           ...activite,
           corpus_refs: Array.from(new Set([...effectiveCorpusRefs, ref])),
           corpus_status: 'trouve',
         })}
+        onDeposit={(item) => {
+          onCorpusDeposited(item)
+          editor.replaceActivite(seanceIndex, activiteIndex, {
+            ...activite,
+            corpus_refs: Array.from(new Set([...effectiveCorpusRefs, item.id])),
+            corpus_status: 'trouve',
+          })
+        }}
         onView={onViewCorpus}
         corpusById={corpusById}
       />
@@ -1280,7 +1321,9 @@ function CorpusBadge({
   corpusRefs,
   suggestion,
   sequenceCorpusRefs,
+  niveau,
   onAssociate,
+  onDeposit,
   onView,
   corpusById,
 }: {
@@ -1288,15 +1331,43 @@ function CorpusBadge({
   corpusRefs: string[]
   suggestion?: CorpusSuggestion
   sequenceCorpusRefs: string[]
+  niveau?: string
   onAssociate?: (ref: string) => void
+  onDeposit?: (item: CorpusItem) => void
   onView?: (ref: string) => void
   corpusById: Record<string, CorpusMeta>
 }) {
   const [showPicker, setShowPicker] = useState(false)
+  const [showDeposit, setShowDeposit] = useState(false)
 
   if (!status || status === 'non_requis') return null
 
   const unlinkedRefs = sequenceCorpusRefs.filter((ref) => !corpusRefs.includes(ref))
+
+  const depositEl = onDeposit ? (
+    <button
+      onClick={() => setShowDeposit((v) => !v)}
+      className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-blue-950/50 text-blue-300 border border-blue-700/40 hover:bg-blue-900/40 transition-colors whitespace-nowrap"
+      title="Déposer ou coller le texte de cette œuvre"
+    >
+      <Upload className="h-2.5 w-2.5 shrink-0" />
+      Déposer le texte
+    </button>
+  ) : null
+
+  const depositPanelEl = showDeposit && onDeposit ? (
+    <div className="mt-2 w-full">
+      <TextDepositPanel
+        niveau={niveau ?? ''}
+        defaultAuteur={suggestion?.auteur ?? ''}
+        defaultOeuvre={suggestion?.oeuvre ?? ''}
+        defaultGenres={suggestion?.genres ?? []}
+        defaultThemes={suggestion?.themes ?? []}
+        defaultAnnee={suggestion?.annee_publication ?? null}
+        onDeposited={(item) => { onDeposit(item); setShowDeposit(false) }}
+      />
+    </div>
+  ) : null
 
   const associerEl = onAssociate && unlinkedRefs.length > 0 ? (
     <div className="relative">
@@ -1360,12 +1431,16 @@ function CorpusBadge({
   // Texte manquant avec suggestion IA
   if (status === 'manquant' && suggestion) {
     return (
-      <div className="mt-2 mb-1 flex flex-wrap items-center gap-1.5">
-        <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-amber-950/50 text-amber-400 border border-amber-700/40">
-          <AlertTriangle className="h-3 w-3 shrink-0" />
-          Texte manquant · Suggestion : {suggestion.auteur}, <em className="ml-0.5">{suggestion.oeuvre}</em>
-        </span>
-        {associerEl}
+      <div className="mt-2 mb-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-amber-950/50 text-amber-400 border border-amber-700/40">
+            <AlertTriangle className="h-3 w-3 shrink-0" />
+            Texte manquant · Suggestion : {suggestion.auteur}, <em className="ml-0.5">{suggestion.oeuvre}</em>
+          </span>
+          {associerEl}
+          {depositEl}
+        </div>
+        {depositPanelEl}
       </div>
     )
   }
@@ -1373,12 +1448,16 @@ function CorpusBadge({
   // Texte manquant sans suggestion
   if (status === 'manquant' || status === 'manquant_sans_suggestion') {
     return (
-      <div className="mt-2 mb-1 flex flex-wrap items-center gap-1.5">
-        <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-gray-900/50 text-gray-500 border border-gray-700/30">
-          <AlertTriangle className="h-3 w-3 shrink-0" />
-          Aucun texte disponible dans le corpus
-        </span>
-        {associerEl}
+      <div className="mt-2 mb-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-gray-900/50 text-gray-500 border border-gray-700/30">
+            <AlertTriangle className="h-3 w-3 shrink-0" />
+            Aucun texte disponible dans le corpus
+          </span>
+          {associerEl}
+          {depositEl}
+        </div>
+        {depositPanelEl}
       </div>
     )
   }

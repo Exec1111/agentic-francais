@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BookOpen, AlertTriangle, Plus, ChevronRight, ChevronDown, Sparkles, Search, Library, Wand2, Loader2, Eye, EyeOff, Pencil, Check, X } from 'lucide-react'
+import { BookOpen, AlertTriangle, Plus, ChevronRight, ChevronDown, Sparkles, Search, Library, Wand2, Loader2, Eye, EyeOff, Pencil, Check, X, Upload, ShieldCheck } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import { CorpusViewer } from './CorpusViewer'
+import { TextDepositPanel } from './TextDepositPanel'
 import type { CorpusSuggestResponse } from '@/app/api/corpus/suggest/route'
 import type { CorpusGenerateResponse } from '@/app/api/corpus/generate/route'
 import type { CorpusItem } from '@/shared/schemas'
@@ -40,14 +41,36 @@ function CorpusItemCard({
   niveauxRecherches,
   onToggle,
   onView,
+  onValidated,
 }: {
   item: Omit<CorpusItem, 'contenu'>
   selected: boolean
   niveauxRecherches: string[]
   onToggle: () => void
   onView: (id: string) => void
+  /** Si fourni et que l'item n'est pas vérifié, affiche un bouton « Valider ». */
+  onValidated?: () => void
 }) {
   const mismatch = hasNiveauMismatch(item.niveaux, niveauxRecherches)
+  const [validating, setValidating] = useState(false)
+
+  const validate = async () => {
+    if (validating) return
+    setValidating(true)
+    try {
+      const res = await fetch(`/api/corpus/${item.id}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verified: true }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error ?? `Erreur HTTP ${res.status}`)
+      onValidated?.()
+    } catch {
+      /* échec silencieux : l'item reste non validé, l'enseignant peut réessayer */
+    } finally {
+      setValidating(false)
+    }
+  }
   return (
     <div
       className={cn(
@@ -88,6 +111,18 @@ function CorpusItemCard({
         </div>
       </button>
 
+      {onValidated && !item.verified && (
+        <button
+          onClick={validate}
+          disabled={validating}
+          className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-emerald-950/50 text-emerald-400 border border-emerald-700/40 hover:bg-emerald-900/40 disabled:opacity-50 transition-colors whitespace-nowrap"
+          title="Valider ce texte (le rend suggérable et utilisable par l'appariement automatique)"
+        >
+          {validating ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
+          Valider
+        </button>
+      )}
+
       <button
         onClick={() => onView(item.id)}
         className="shrink-0 p-1 rounded text-gray-500 hover:text-emerald-400 transition-colors"
@@ -119,7 +154,30 @@ function GeneratedTextCard({
   const [draftTexte, setDraftTexte] = useState(item.contenu)
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
+  const [validating, setValidating] = useState(false)
   const wordCount = item.contenu.trim().split(/\s+/).filter(Boolean).length
+
+  // Validation : marque le texte comme vérifié (verified=1) → éligible aux
+  // suggestions et à l'appariement automatique.
+  const validate = async () => {
+    if (validating) return
+    setValidating(true)
+    setEditError(null)
+    try {
+      const res = await fetch(`/api/corpus/${item.id}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verified: true }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? `Erreur HTTP ${res.status}`)
+      onUpdate(data.item as CorpusItem)
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'La validation a échoué')
+    } finally {
+      setValidating(false)
+    }
+  }
 
   const startEdit = () => {
     setDraftTitre(item.titre)
@@ -198,7 +256,7 @@ function GeneratedTextCard({
             </span>
             <span className="text-xs opacity-60 block mt-0.5 text-gray-400">
               {item.genres.join(', ')} · {item.themes.join(', ')} · ~{wordCount} mots
-              {item.verified_by === 'professeur' && ' · relu'}
+              {item.verified ? ' · validé ✓' : item.verified_by === 'professeur' ? ' · relu' : ''}
             </span>
             {notice && (
               <span className="text-xs opacity-50 block mt-0.5 italic text-gray-400">{notice}</span>
@@ -228,6 +286,17 @@ function GeneratedTextCard({
             </>
           ) : (
             <>
+              {!item.verified && (
+                <button
+                  onClick={validate}
+                  disabled={validating}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] bg-emerald-950/50 text-emerald-400 border border-emerald-700/40 hover:bg-emerald-900/40 disabled:opacity-50 transition-colors whitespace-nowrap"
+                  title="Valider ce texte (le rend suggérable et utilisable par l'appariement automatique)"
+                >
+                  {validating ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
+                  Valider
+                </button>
+              )}
               <button
                 onClick={startEdit}
                 className="p-1 rounded text-gray-500 hover:text-purple-400 transition-colors"
@@ -246,6 +315,10 @@ function GeneratedTextCard({
           )}
         </div>
       </div>
+
+      {!editing && editError && (
+        <p className="mx-3 mb-2 text-xs text-red-400">❌ {editError}</p>
+      )}
 
       {/* Zone d'édition du texte */}
       {editing && (
@@ -346,6 +419,40 @@ export function CorpusSelector({
     )
   }
 
+  // === Textes RÉELS déposés par l'enseignant (collage / fichier) ===
+  const [deposited, setDeposited] = useState<CorpusItem[]>([])
+  // Pré-remplissage du panneau de dépôt depuis une suggestion IA (métadonnées incluses)
+  type DepositSeed = {
+    auteur: string
+    oeuvre: string
+    genres: string[]
+    themes: string[]
+    annee: number | null
+  }
+  const [depositSeed, setDepositSeed] = useState<DepositSeed | null>(null)
+  const depositRef = useRef<HTMLDivElement>(null)
+
+  const seedDepositFromSuggestion = (sugg: CorpusSuggestResponse['suggestions'][number]) => {
+    setDepositSeed({
+      auteur: sugg.auteur,
+      oeuvre: sugg.oeuvre,
+      genres: sugg.genres ?? [],
+      themes: sugg.themes ?? [],
+      annee: sugg.annee_publication,
+    })
+    // Laisser le remount du panneau se faire avant de défiler vers lui
+    requestAnimationFrame(() => depositRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+  }
+
+  const handleDeposited = (item: CorpusItem) => {
+    setDeposited((prev) => [...prev, item])
+    setSelected((prev) => new Set(prev).add(item.id))
+  }
+
+  const handleUpdateDeposited = (updated: CorpusItem) => {
+    setDeposited((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+  }
+
   // === Browser état ===
   const [browserOpen, setBrowserOpen] = useState(false)
   const [browserItems, setBrowserItems] = useState<Omit<CorpusItem, 'contenu'>[] | null>(null)
@@ -381,9 +488,9 @@ export function CorpusSelector({
   }
 
   const filteredBrowserItems = useMemo(() => {
-    // Exclure les textes générés dans cette session (affichés dans leur propre section)
-    const generatedIds = new Set(generated.map((g) => g.item.id))
-    const items = (browserItems ?? []).filter((i) => !generatedIds.has(i.id))
+    // Exclure les textes générés/déposés dans cette session (affichés dans leur propre section)
+    const ownIds = new Set([...generated.map((g) => g.item.id), ...deposited.map((d) => d.id)])
+    const items = (browserItems ?? []).filter((i) => !ownIds.has(i.id))
     const q = browserSearch.toLowerCase().trim()
     if (!q) return items
     return items.filter(
@@ -394,7 +501,7 @@ export function CorpusSelector({
         item.themes.some((t) => t.toLowerCase().includes(q)) ||
         item.genres.some((g) => g.toLowerCase().includes(q)),
     )
-  }, [browserItems, browserSearch, generated])
+  }, [browserItems, browserSearch, generated, deposited])
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -511,6 +618,11 @@ export function CorpusSelector({
                         niveauxRecherches={response.niveaux_recherches}
                         onToggle={() => toggle(item.id)}
                         onView={setViewCorpusId}
+                        onValidated={() =>
+                          setBrowserItems((prev) =>
+                            prev?.map((b) => (b.id === item.id ? { ...b, verified: true } : b)) ?? null,
+                          )
+                        }
                       />
                     ))}
                   </div>
@@ -541,13 +653,57 @@ export function CorpusSelector({
                 <span className="text-xs opacity-70 block mt-0.5">{sugg.extrait_recommande}</span>
                 <span className="text-xs opacity-50 block mt-0.5 italic">{sugg.pourquoi}</span>
               </div>
+              <button
+                onClick={() => seedDepositFromSuggestion(sugg)}
+                className="shrink-0 inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-emerald-700/80 text-white hover:bg-emerald-600 transition-colors whitespace-nowrap"
+                title={`Fournir le texte de « ${sugg.oeuvre} »`}
+              >
+                <Upload className="h-3 w-3" />
+                Fournir le texte
+              </button>
             </div>
           ))}
           <p className="text-xs text-gray-600 pl-1">
-            Ces textes ne sont pas dans votre corpus. Ajoutez-les via <code className="text-gray-500">data/corpus/</code> pour les utiliser dans la génération.
+            Ces textes ne sont pas dans votre corpus. L'IA n'en invente pas le contenu : cliquez
+            « Fournir le texte » pour le déposer ou le coller vous-même ci-dessous.
           </p>
         </div>
       )}
+
+      {/* Texte RÉEL déposé par l'enseignant */}
+      <div ref={depositRef} className="space-y-2">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+          <BookOpen className="h-3 w-3 text-emerald-400" />
+          Déposer ou coller un texte
+          {depositSeed && (
+            <span className="ml-1 normal-case font-normal text-emerald-400/90">
+              — {depositSeed.auteur}, « {depositSeed.oeuvre} »
+            </span>
+          )}
+        </p>
+
+        {deposited.map((item) => (
+          <GeneratedTextCard
+            key={item.id}
+            item={item}
+            notice=""
+            selected={selected.has(item.id)}
+            onToggle={() => toggle(item.id)}
+            onUpdate={handleUpdateDeposited}
+          />
+        ))}
+
+        <TextDepositPanel
+          key={depositSeed ? `${depositSeed.auteur}|${depositSeed.oeuvre}` : 'blank'}
+          niveau={response.niveau}
+          defaultAuteur={depositSeed?.auteur ?? ''}
+          defaultOeuvre={depositSeed?.oeuvre ?? ''}
+          defaultGenres={depositSeed?.genres ?? []}
+          defaultThemes={depositSeed?.themes ?? []}
+          defaultAnnee={depositSeed?.annee ?? null}
+          onDeposited={(item) => { handleDeposited(item); setDepositSeed(null) }}
+        />
+      </div>
 
       {/* Texte original généré par l'IA */}
       <div className="space-y-2">
