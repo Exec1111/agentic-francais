@@ -110,13 +110,32 @@ export interface CorpusMeta {
   titre: string
   has_content: boolean
   domaine_public: boolean
+  /** Pour un passage : id de l'œuvre source. */
+  parent_id?: string
+  /** Pour un passage : angle d'étude. */
+  angle?: string
 }
 
 /** Libellé court et lisible d'un texte corpus pour les chips/badges. */
 export function corpusLabel(meta: CorpusMeta | undefined, fallbackRef: string): string {
-  if (meta) return meta.oeuvre || meta.titre || meta.auteur
+  if (meta) {
+    // Un passage : l'œuvre seule ne distingue pas plusieurs extraits du même texte
+    // (« Fables », « Fables »…). On affiche le titre du passage ; l'angle d'étude
+    // est rappelé en infobulle (voir corpusTooltip).
+    if (meta.parent_id) return meta.titre || meta.angle || meta.oeuvre
+    return meta.oeuvre || meta.titre || meta.auteur
+  }
   // Repli si la métadonnée n'est pas (encore) chargée
   return fallbackRef.startsWith('ia-') ? 'Texte IA' : fallbackRef.replace(/-/g, ' ')
+}
+
+/** Infobulle d'un chip corpus : rappelle l'œuvre et l'angle d'étude pour un passage. */
+export function corpusTooltip(meta: CorpusMeta | undefined, label: string): string {
+  if (meta?.parent_id) {
+    const contexte = [meta.oeuvre, meta.angle].filter(Boolean).join(' — ')
+    return contexte ? `Lire le passage — ${contexte}` : `Lire le passage : ${label}`
+  }
+  return `Lire le texte : ${label}`
 }
 
 export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
@@ -1415,7 +1434,7 @@ function CorpusBadge({
               key={ref}
               onClick={() => onView?.(ref)}
               className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-950/40 text-emerald-500/80 border border-emerald-800/30 hover:bg-emerald-900/40 hover:text-emerald-300 hover:border-emerald-700/50 transition-colors"
-              title={`Lire le texte : ${label}`}
+              title={corpusTooltip(corpusById[ref], label)}
             >
               <BookOpen className="h-2.5 w-2.5 shrink-0" />
               {label}

@@ -94,6 +94,10 @@ export interface UserCorpusMeta {
   annee_publication: number
   edition_reference?: string
   pages?: string
+  /** Pour un passage : id de l'œuvre source (provenance + regroupement UI). */
+  parent_id?: string
+  /** Angle d'étude du passage (« incipit », « ironie », « satire de la guerre »…). */
+  angle?: string
   niveaux: string[]
   genres: string[]
   themes: string[]
@@ -120,6 +124,8 @@ export function buildUserCorpusMarkdown(meta: UserCorpusMeta): string {
     `edition_reference: "${sanitizeScalar(meta.edition_reference ?? DEPOT_EDITION_REFERENCE)}"`,
   ]
   if (meta.pages) lines.push(`pages: "${sanitizeScalar(meta.pages)}"`)
+  if (meta.parent_id) lines.push(`parent_id: "${sanitizeScalar(meta.parent_id)}"`)
+  if (meta.angle) lines.push(`angle: "${sanitizeScalar(meta.angle)}"`)
   lines.push(
     `niveaux: ${toFrontmatterArray(meta.niveaux)}`,
     `genres: ${toFrontmatterArray(meta.genres)}`,
@@ -142,6 +148,52 @@ export function writeUserCorpusFile(meta: UserCorpusMeta): string {
   const filepath = path.join(CORPUS_DIR, `${meta.id}.md`)
   fs.writeFileSync(filepath, buildUserCorpusMarkdown(meta), 'utf-8')
   return filepath
+}
+
+export const PASSAGE_EDITION_REFERENCE = "Passage extrait d'une œuvre du corpus"
+
+export interface PassageCorpusMeta {
+  id: string
+  /** Œuvre source dont ce passage est extrait. */
+  parent_id: string
+  auteur: string
+  oeuvre: string
+  /** Titre du passage (l'angle d'étude sert souvent de titre). */
+  titre: string
+  angle: string
+  annee_publication: number
+  niveaux: string[]
+  genres: string[]
+  themes: string[]
+  domaine_public: boolean
+  /** Sous-chaîne EXACTE de l'œuvre source (résolue par resolvePassageSpans). */
+  texte: string
+}
+
+/**
+ * Écrit un passage comme item de corpus à part entière (`type: extrait`).
+ *
+ * Le passage hérite de l'auteur/œuvre/genres de l'œuvre source et porte son
+ * propre `angle`. Son `contenu` est une copie fidèle d'une portion de l'œuvre
+ * (cf. principe d'ancrage) ; il réutilise donc tout le pipeline corpus existant.
+ */
+export function writePassageCorpusFile(meta: PassageCorpusMeta): string {
+  return writeUserCorpusFile({
+    id: meta.id,
+    type: 'extrait',
+    parent_id: meta.parent_id,
+    angle: meta.angle,
+    auteur: meta.auteur,
+    oeuvre: meta.oeuvre,
+    titre: meta.titre,
+    annee_publication: meta.annee_publication,
+    edition_reference: PASSAGE_EDITION_REFERENCE,
+    niveaux: meta.niveaux,
+    genres: meta.genres,
+    themes: meta.themes,
+    domaine_public: meta.domaine_public,
+    texte: meta.texte,
+  })
 }
 
 /**

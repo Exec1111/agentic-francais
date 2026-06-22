@@ -2,7 +2,8 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Sparkles, Download, Terminal, Save, Bot, ShieldCheck } from 'lucide-react'
+import { Sparkles, Download, Terminal, Save, Bot, ShieldCheck, Library } from 'lucide-react'
+import { cn } from '@/shared/utils'
 import { WorkflowProgress } from '@/frontend/components/WorkflowPipeline'
 import { SequenceEditor } from '@/frontend/components/SequenceEditor'
 import { ReviewPanel } from '@/frontend/components/ReviewPanel'
@@ -12,6 +13,7 @@ import { LLMLogsPanel } from '@/frontend/components/LLMLogsPanel'
 import { PipelinePanel } from '@/frontend/components/PipelinePanel'
 import { SavedSequences } from '@/frontend/components/SavedSequences'
 import { GenerateModal } from '@/frontend/components/GenerateModal'
+import { CorpusManager } from '@/frontend/components/CorpusManager'
 import { useSequenceEditor } from '@/frontend/hooks/useSequenceEditor'
 import { useSequenceStore } from '@/frontend/hooks/useSequenceStore'
 import type { CorpusSuggestResponse } from '@/app/api/corpus/suggest/route'
@@ -48,6 +50,7 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
   const [showPipeline, setShowPipeline] = useState(false)
+  const [view, setView] = useState<'sequences' | 'corpus'>('sequences')
   const abortRef = useRef<AbortController | null>(null)
   const store = useSequenceStore()
 
@@ -285,6 +288,18 @@ export default function HomePage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setView((v) => (v === 'corpus' ? 'sequences' : 'corpus'))}
+              className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs transition-all',
+                view === 'corpus'
+                  ? 'bg-blue-900/40 border-blue-700/50 text-blue-300'
+                  : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-blue-400 hover:border-blue-700/50',
+              )}
+            >
+              <Library className="h-3.5 w-3.5" />
+              {view === 'corpus' ? 'Séquences' : 'Mon corpus'}
+            </button>
             <ProviderSwitch
               provider={provider}
               onSwitch={setProvider}
@@ -331,6 +346,13 @@ export default function HomePage() {
       />
 
       {/* Main content */}
+      {view === 'corpus' ? (
+        <main className="flex-1 overflow-y-auto w-full scrollbar-thin">
+          <div className="max-w-5xl mx-auto px-4 py-6">
+            <CorpusManager provider={provider} />
+          </div>
+        </main>
+      ) : (
       <main className="flex-1 overflow-hidden w-full">
         <div className="max-w-7xl mx-auto h-full px-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
 
@@ -446,6 +468,7 @@ export default function HomePage() {
           </div>
         </div>
       </main>
+      )}
 
     </div>
   )

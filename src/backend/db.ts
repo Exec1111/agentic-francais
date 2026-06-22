@@ -191,6 +191,17 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE review_problemes ADD COLUMN suggestions TEXT NOT NULL DEFAULT '[]';
     `,
   },
+  {
+    version: 7,
+    name: 'corpus_passages',
+    sql: `
+      -- Passages d'une œuvre : items de corpus à part entière (type 'extrait')
+      -- ancrés sur une œuvre source via parent_id, et porteurs d'un angle d'étude.
+      ALTER TABLE corpus ADD COLUMN parent_id TEXT;
+      ALTER TABLE corpus ADD COLUMN angle     TEXT;
+      CREATE INDEX IF NOT EXISTS idx_corpus_parent ON corpus(parent_id);
+    `,
+  },
 ]
 
 function runMigrations(db: Database.Database) {

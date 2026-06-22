@@ -37,16 +37,21 @@ export async function PATCH(
     }
     const isIa = item.auteur === IA_AUTEUR
     const isDepot = item.verified_by === DEPOT_VERIFIED_BY
-    if (!isIa && !isDepot) {
+    // Un passage (extrait d'une œuvre, parent_id renseigné) reste éditable : le
+    // prof peut affiner ses bornes/son titre même après l'avoir validé.
+    const isPassage = !!item.parent_id
+    if (!isIa && !isDepot && !isPassage) {
       return NextResponse.json(
-        { error: 'Seuls les textes générés par l\'IA ou déposés par l\'enseignant sont éditables' },
+        { error: 'Seuls les textes générés par l\'IA, déposés par l\'enseignant ou les passages sont éditables' },
         { status: 403 },
       )
     }
 
-    const { titre, texte } = await request.json()
+    const { titre, texte, angle } = await request.json()
     const newTitre = typeof titre === 'string' && titre.trim() ? titre.trim() : item.titre
     const newTexte = typeof texte === 'string' && texte.trim() ? texte.trim() : item.contenu
+    // L'angle n'a de sens que pour un passage ; on accepte la chaîne vide (effacement).
+    const newAngle = typeof angle === 'string' ? angle.trim() : item.angle
 
     // Réécrire le fichier source (même id), puis supprimer la ligne en base
     // avant le sync : le chemin INSERT de l'importeur respecte le frontmatter
@@ -63,7 +68,8 @@ export async function PATCH(
         verified_by: 'professeur',
       })
     } else {
-      // Texte déposé : on conserve l'auteur/l'œuvre/la référence réels.
+      // Texte déposé ou passage : on conserve l'auteur/l'œuvre/la référence réels
+      // (et, pour un passage, le rattachement parent_id et l'angle d'étude).
       writeUserCorpusFile({
         id: item.id,
         type: item.type,
@@ -73,6 +79,8 @@ export async function PATCH(
         annee_publication: item.annee_publication,
         edition_reference: item.edition_reference,
         pages: item.pages,
+        parent_id: item.parent_id,
+        angle: newAngle,
         niveaux: item.niveaux,
         genres: item.genres,
         themes: item.themes,

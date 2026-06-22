@@ -10,6 +10,8 @@ export interface CorpusMatchable {
   auteur: string
   oeuvre: string
   titre: string
+  /** Angle d'étude d'un passage — pèse dans le matching face aux objectifs de séance. */
+  angle?: string
 }
 
 export function normalizeForMatch(s: string): string {
@@ -29,7 +31,7 @@ function matchCandidates(item: CorpusMatchable): string[] {
     .replace(/-[a-z0-9]{6,}$/i, '')
     .replace(/-/g, ' ')
 
-  return [item.oeuvre, item.titre, item.auteur, item.id.replace(/-/g, ' '), slugLabel]
+  return [item.oeuvre, item.titre, item.auteur, item.angle ?? '', item.id.replace(/-/g, ' '), slugLabel]
     .map(normalizeForMatch)
     .filter((c) => c.length >= 4)
 }
@@ -51,7 +53,7 @@ function scoreBestItem(
     .filter((w) => w.length > 3)
 
   const scored = corpusItems.map((item) => {
-    const haystack = normalizeForMatch([item.oeuvre, item.titre, item.auteur].join(' '))
+    const haystack = normalizeForMatch([item.oeuvre, item.titre, item.auteur, item.angle ?? ''].join(' '))
     const score = keywords.filter((k) => haystack.includes(k)).length
     return { item, score }
   })
