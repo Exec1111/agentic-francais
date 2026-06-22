@@ -139,9 +139,9 @@ export function syncCorpusFromFiles(force = false): SyncResult {
         db.prepare(`
           INSERT INTO corpus (
             id, type, auteur, oeuvre, titre, annee_publication, edition_reference, pages,
-            contenu, checksum, niveaux, genres, themes, domaine_public, verified,
+            parent_id, angle, contenu, checksum, niveaux, genres, themes, domaine_public, verified,
             verified_by, verified_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           id,
           meta.type,
@@ -151,6 +151,8 @@ export function syncCorpusFromFiles(force = false): SyncResult {
           meta.annee_publication,
           meta.edition_reference,
           (meta.pages as string) ?? null,
+          (meta.parent_id as string) ?? null,
+          (meta.angle as string) ?? null,
           body,
           checksum,
           toJson(meta.niveaux || []),
@@ -169,7 +171,7 @@ export function syncCorpusFromFiles(force = false): SyncResult {
         db.prepare(`
           UPDATE corpus SET
             type = ?, auteur = ?, oeuvre = ?, titre = ?, annee_publication = ?,
-            edition_reference = ?, pages = ?, contenu = ?, checksum = ?,
+            edition_reference = ?, pages = ?, parent_id = ?, angle = ?, contenu = ?, checksum = ?,
             niveaux = ?, genres = ?, themes = ?,
             domaine_public = ?, verified = 0, verified_by = NULL, verified_at = NULL,
             updated_at = ?
@@ -182,6 +184,8 @@ export function syncCorpusFromFiles(force = false): SyncResult {
           meta.annee_publication,
           meta.edition_reference,
           (meta.pages as string) ?? null,
+          (meta.parent_id as string) ?? null,
+          (meta.angle as string) ?? null,
           body,
           checksum,
           toJson(meta.niveaux || []),

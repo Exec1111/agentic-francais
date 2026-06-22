@@ -14,6 +14,8 @@ function rowToCorpusItem(row: Record<string, unknown>): CorpusItem {
     annee_publication: row.annee_publication as number,
     edition_reference: row.edition_reference as string,
     pages: (row.pages as string) ?? undefined,
+    parent_id: (row.parent_id as string) ?? undefined,
+    angle: (row.angle as string) ?? undefined,
     contenu: row.contenu as string,
     checksum: row.checksum as string,
     niveaux: fromJson<string[]>(row.niveaux as string),
@@ -196,9 +198,9 @@ export function insertCorpusItem(item: Omit<CorpusItem, 'created_at' | 'updated_
   db.prepare(`
     INSERT INTO corpus (
       id, type, auteur, oeuvre, titre, annee_publication, edition_reference, pages,
-      contenu, checksum, niveaux, genres, themes, domaine_public, verified,
+      parent_id, angle, contenu, checksum, niveaux, genres, themes, domaine_public, verified,
       verified_by, verified_at, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     item.id,
     item.type,
@@ -208,6 +210,8 @@ export function insertCorpusItem(item: Omit<CorpusItem, 'created_at' | 'updated_
     item.annee_publication,
     item.edition_reference,
     item.pages ?? null,
+    item.parent_id ?? null,
+    item.angle ?? null,
     item.contenu,
     item.checksum,
     toJson(item.niveaux),

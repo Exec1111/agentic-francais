@@ -2,9 +2,10 @@
 
 import { useState, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BookOpen, AlertTriangle, Plus, ChevronRight, ChevronDown, Sparkles, Search, Library, Wand2, Loader2, Eye, EyeOff, Pencil, Check, X, Upload, ShieldCheck } from 'lucide-react'
+import { BookOpen, AlertTriangle, Plus, ChevronRight, ChevronDown, Sparkles, Search, Library, Wand2, Loader2, Eye, EyeOff, Pencil, Check, X, Upload, ShieldCheck, Scissors } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import { CorpusViewer } from './CorpusViewer'
+import { DecoupePanel } from './DecoupePanel'
 import { TextDepositPanel } from './TextDepositPanel'
 import type { CorpusSuggestResponse } from '@/app/api/corpus/suggest/route'
 import type { CorpusGenerateResponse } from '@/app/api/corpus/generate/route'
@@ -42,6 +43,7 @@ function CorpusItemCard({
   onToggle,
   onView,
   onValidated,
+  onDecoupe,
 }: {
   item: Omit<CorpusItem, 'contenu'>
   selected: boolean
@@ -50,6 +52,8 @@ function CorpusItemCard({
   onView: (id: string) => void
   /** Si fourni et que l'item n'est pas vérifié, affiche un bouton « Valider ». */
   onValidated?: () => void
+  /** Si fourni et que l'item est une œuvre source (pas un passage), affiche « Découper ». */
+  onDecoupe?: () => void
 }) {
   const mismatch = hasNiveauMismatch(item.niveaux, niveauxRecherches)
   const [validating, setValidating] = useState(false)
@@ -102,6 +106,12 @@ function CorpusItemCard({
             {item.titre} · {item.genres.join(', ')}
             {item.pages && ` · ${item.pages}`}
           </span>
+          {item.angle && (
+            <span className="inline-flex items-center gap-1 mt-1.5 text-xs px-1.5 py-0.5 rounded bg-amber-950/40 text-amber-300/90 border border-amber-800/40">
+              <Scissors className="h-2.5 w-2.5 shrink-0" />
+              {item.angle}
+            </span>
+          )}
           {mismatch && (
             <span className="inline-flex items-center gap-1 mt-1.5 text-xs px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-400 border border-amber-700/40">
               <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
@@ -120,6 +130,16 @@ function CorpusItemCard({
         >
           {validating ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
           Valider
+        </button>
+      )}
+
+      {onDecoupe && !item.parent_id && (
+        <button
+          onClick={onDecoupe}
+          className="shrink-0 p-1 rounded text-gray-500 hover:text-amber-400 transition-colors"
+          title="Découper cette œuvre en passages"
+        >
+          <Scissors className="h-4 w-4" />
         </button>
       )}
 
@@ -384,6 +404,22 @@ export function CorpusSelector({
   // Texte affiché dans le panneau de lecture (null = fermé)
   const [viewCorpusId, setViewCorpusId] = useState<string | null>(null)
 
+  // Œuvre en cours de découpe dans le backoffice (null = fermé)
+  const [decoupe, setDecoupe] = useState<{ id: string; label: string } | null>(null)
+
+  // Passages créés via la découpe → ajoutés au browser et pré-sélectionnés
+  const handlePassagesCreated = (items: CorpusItem[]) => {
+    if (items.length === 0) return
+    const metas = items.map(({ contenu: _c, ...meta }) => meta as Omit<CorpusItem, 'contenu'>)
+    setBrowserItems((prev) => [...metas, ...(prev ?? [])])
+    setBrowserOpen(true)
+    setSelected((prev) => {
+      const next = new Set(prev)
+      for (const it of items) next.add(it.id)
+      return next
+    })
+  }
+
   const handleGenerateText = async () => {
     if (genLoading) return
     setGenLoading(true)
@@ -503,6 +539,32 @@ export function CorpusSelector({
     )
   }, [browserItems, browserSearch, generated, deposited])
 
+  // Ordonne les items pour afficher chaque passage juste sous son œuvre source.
+  // depth=1 → passage rattaché à une œuvre présente dans la liste (affiché indenté).
+  const orderedBrowserItems = useMemo(() => {
+    const items = filteredBrowserItems
+    const byId = new Set(items.map((i) => i.id))
+    const childrenByParent = new Map<string, typeof items>()
+    for (const it of items) {
+      if (it.parent_id) {
+        const arr = childrenByParent.get(it.parent_id) ?? []
+        arr.push(it)
+        childrenByParent.set(it.parent_id, arr)
+      }
+    }
+    const out: { item: (typeof items)[number]; depth: number }[] = []
+    for (const it of items) {
+      if (it.parent_id) {
+        // Passage orphelin (œuvre source absente de la liste) → affiché à plat
+        if (!byId.has(it.parent_id)) out.push({ item: it, depth: 0 })
+        continue
+      }
+      out.push({ item: it, depth: 0 })
+      for (const child of childrenByParent.get(it.id) ?? []) out.push({ item: child, depth: 1 })
+    }
+    return out
+  }, [filteredBrowserItems])
+
   const toggle = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev)
@@ -610,20 +672,22 @@ export function CorpusSelector({
                   </p>
                 ) : (
                   <div className="space-y-2 max-h-72 overflow-y-auto pr-1 scrollbar-thin">
-                    {filteredBrowserItems.map((item) => (
-                      <CorpusItemCard
-                        key={item.id}
-                        item={item}
-                        selected={selected.has(item.id)}
-                        niveauxRecherches={response.niveaux_recherches}
-                        onToggle={() => toggle(item.id)}
-                        onView={setViewCorpusId}
-                        onValidated={() =>
-                          setBrowserItems((prev) =>
-                            prev?.map((b) => (b.id === item.id ? { ...b, verified: true } : b)) ?? null,
-                          )
-                        }
-                      />
+                    {orderedBrowserItems.map(({ item, depth }) => (
+                      <div key={item.id} className={cn(depth > 0 && 'ml-5 border-l border-gray-800 pl-2')}>
+                        <CorpusItemCard
+                          item={item}
+                          selected={selected.has(item.id)}
+                          niveauxRecherches={response.niveaux_recherches}
+                          onToggle={() => toggle(item.id)}
+                          onView={setViewCorpusId}
+                          onValidated={() =>
+                            setBrowserItems((prev) =>
+                              prev?.map((b) => (b.id === item.id ? { ...b, verified: true } : b)) ?? null,
+                            )
+                          }
+                          onDecoupe={() => setDecoupe({ id: item.id, label: `${item.auteur}, « ${item.oeuvre} »` })}
+                        />
+                      </div>
                     ))}
                   </div>
                 )}
@@ -795,6 +859,15 @@ export function CorpusSelector({
 
       {/* Panneau de lecture d'un texte du corpus (au-dessus de la modale) */}
       <CorpusViewer corpusId={viewCorpusId} onClose={() => setViewCorpusId(null)} />
+
+      {/* Backoffice de découpe d'une œuvre en passages */}
+      <DecoupePanel
+        oeuvreId={decoupe?.id ?? null}
+        oeuvreLabel={decoupe?.label}
+        provider={provider}
+        onClose={() => setDecoupe(null)}
+        onCreated={handlePassagesCreated}
+      />
     </motion.div>
   )
 }

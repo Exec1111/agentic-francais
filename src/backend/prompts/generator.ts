@@ -34,6 +34,25 @@ RÈGLE ABSOLUE SUR LES TEXTES :
 - Cite l'auteur et le titre exact du texte fourni dans la consigne.
 - Si tu veux citer un passage, utilise UNIQUEMENT des extraits présents dans le texte fourni.`
 
+/**
+ * Budget de caractères par texte envoyé au générateur.
+ *
+ * Un PASSAGE (unité de travail attendue) tient toujours sous ce seuil : il est
+ * donc transmis intégralement. Le budget n'est qu'un garde-fou pour le cas où
+ * une œuvre complète serait encore référencée en direct — il évite d'exploser le
+ * contexte sans pour autant tronquer à l'incipit. Il s'étend de lui-même : plus
+ * besoin de le retoucher quand on travaille sur des passages.
+ */
+export const CORPUS_BUDGET_CHARS = 14000
+
+function clampToBudget(contenu: string): string {
+  if (contenu.length <= CORPUS_BUDGET_CHARS) return contenu
+  return (
+    contenu.slice(0, CORPUS_BUDGET_CHARS) +
+    "\n[...] (œuvre tronquée — découpe-la en passages pour cibler une portion précise)"
+  )
+}
+
 export function buildCorpusBlock(corpusItems: CorpusItem[]): string {
   if (corpusItems.length === 0) return ''
   return `
@@ -45,8 +64,8 @@ N'invente AUCUN autre texte. N'écris JAMAIS "texte non fourni" ou "texte imagin
 ${corpusItems.map((item) =>
     [
       `━━━ TEXTE OFFICIEL : ${item.auteur}, « ${item.oeuvre} » ━━━`,
-      `(${item.edition_reference}${item.pages ? `, ${item.pages}` : ''})`,
-      item.contenu.slice(0, 800) + (item.contenu.length > 800 ? '\n[...]' : ''),
+      `(${item.edition_reference}${item.pages ? `, ${item.pages}` : ''}${item.angle ? ` — angle : ${item.angle}` : ''})`,
+      clampToBudget(item.contenu),
       `━━━ FIN DU TEXTE ━━━`,
     ].join('\n')
   ).join('\n\n')}

@@ -14,6 +14,10 @@ export const CorpusItemSchema = z.object({
   annee_publication: z.number(),
   edition_reference: z.string(),
   pages: z.string().optional(),
+  /** Pour un passage : id de l'œuvre source dont il est extrait (provenance + regroupement UI). */
+  parent_id: z.string().optional(),
+  /** Angle d'étude du passage (« incipit », « ironie », « satire de la guerre »…). */
+  angle: z.string().optional(),
   contenu: z.string(),
   checksum: z.string(),
   niveaux: z.array(z.string()),
@@ -74,11 +78,32 @@ export const CorpusRankingSchema = z.object({
   items: z.array(CorpusRankingItemSchema),
 })
 
+// === Découpe d'une œuvre en passages exploitables (agent corpus-decoupe) ===
+// L'agent renvoie des ANCRES verbatim (pas le texte recopié, pas d'offsets) : le
+// serveur localise debut_texte/fin_texte dans l'œuvre et extrait la sous-chaîne
+// exacte de la source (garantit la fidélité). Voir resolvePassageSpans.
+export const CorpusPassageProposalSchema = z.object({
+  titre: z.string(),
+  angle: z.string(),
+  // Ancres verbatim recopiées du texte source (≈ 8–12 mots chacune).
+  debut_texte: z.string(),
+  fin_texte: z.string(),
+  pourquoi: z.string(),
+  // nullable (pas optional) : structured outputs exige tous les champs dans required
+  themes: z.array(z.string()).nullable(),
+  niveau_difficulte: z.enum(['accessible', 'standard', 'exigeant']).nullable(),
+})
+export const CorpusDecoupeSchema = z.object({
+  passages: z.array(CorpusPassageProposalSchema),
+})
+
 export type CorpusItem = z.infer<typeof CorpusItemSchema>
 export type CorpusQuery = z.infer<typeof CorpusQuerySchema>
 export type CorpusSuggestion = z.infer<typeof CorpusSuggestionSchema>
 export type GeneratedText = z.infer<typeof GeneratedTextSchema>
 export type CorpusRankingItem = z.infer<typeof CorpusRankingItemSchema>
+export type CorpusPassageProposal = z.infer<typeof CorpusPassageProposalSchema>
+export type CorpusDecoupe = z.infer<typeof CorpusDecoupeSchema>
 
 // === Schémas des artefacts pédagogiques ===
 
