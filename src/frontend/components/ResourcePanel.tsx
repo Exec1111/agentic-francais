@@ -24,6 +24,7 @@ const TYPE_CONFIG: Record<string, { label: string; color: string; activeColor: s
   fiche_lecture:     { label: 'Fiche de lecture',    color: 'border-indigo-700/40 text-indigo-400',activeColor: 'bg-indigo-600' },
   carte_mentale:     { label: 'Carte mentale',       color: 'border-teal-700/40 text-teal-400',    activeColor: 'bg-teal-600' },
   dictee:            { label: 'Dictée (prof)',        color: 'border-rose-700/40 text-rose-400',    activeColor: 'bg-rose-600' },
+  evaluation_sommative: { label: "Sujet d'évaluation", color: 'border-red-700/40 text-red-400',    activeColor: 'bg-red-600' },
 }
 
 const DEFAULT_TITLES: Record<string, string> = {
@@ -37,6 +38,7 @@ const DEFAULT_TITLES: Record<string, string> = {
   fiche_lecture:     'Fiche de lecture',
   carte_mentale:     'Carte mentale',
   dictee:            'Dictée',
+  evaluation_sommative: "Sujet d'évaluation",
 }
 
 // ── Types props ────────────────────────────────────────────────────────────────
@@ -77,7 +79,7 @@ interface ResourcePanelProps {
 
 // ── Markdown renderer (léger, dédié aux ressources pédagogiques) ───────────────
 
-function renderMarkdown(md: string): string {
+export function renderMarkdown(md: string): string {
   if (!md) return ''
   let html = md
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -149,7 +151,7 @@ function groupIntoPairs(resources: RessourceStructuree[]): RessourcePaire[] {
 
 // ── Impression PDF ─────────────────────────────────────────────────────────────
 
-function printResource(resource: RessourceStructuree, audience: 'eleve' | 'professeur') {
+export function printResource(resource: RessourceStructuree, audience: 'eleve' | 'professeur') {
   const typeLabel = TYPE_CONFIG[resource.type]?.label || resource.type
   const suffix = audience === 'eleve' ? 'Élève' : 'Professeur'
   const badgeColor = audience === 'eleve' ? '#2563eb' : '#d97706'

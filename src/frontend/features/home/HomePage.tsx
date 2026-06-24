@@ -225,6 +225,28 @@ export default function HomePage() {
     await store.save(editor.sequence, review)
   }, [editor.sequence, review, store])
 
+  // Génère le bundle « évaluation finale ». Sauvegarde d'abord la séquence (la
+  // ressource est rattachée par FK à la séquence en base), puis appelle l'API
+  // d'orchestration. Retourne la liste plate des ressources générées.
+  const handleGenerateEvaluation = useCallback(async (consignes?: string) => {
+    if (!editor.sequence) throw new Error('Aucune séquence à évaluer.')
+    // Garantit l'existence de la séquence en base (contrainte FK)
+    await store.save(editor.sequence, review)
+    const res = await fetch('/api/generate/evaluation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sequenceId: editor.sequence.id,
+        sequence: editor.sequence,
+        provider,
+        consignes,
+      }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Erreur serveur')
+    return [data.sujet.professeur, data.sujet.eleve, data.grille.eleve]
+  }, [editor.sequence, review, provider, store])
+
   // Relance le Reviewer sur la séquence courante (y compris après édition).
   // Produit une review au format structuré → correctifs au clic disponibles.
   const handleRunReview = useCallback(async () => {
@@ -426,7 +448,7 @@ export default function HomePage() {
                     </button>
                   </div>
 
-                  <SequenceEditor editor={editor} provider={provider} />
+                  <SequenceEditor editor={editor} provider={provider} onGenerateEvaluation={handleGenerateEvaluation} />
                 </motion.div>
               )}
             </AnimatePresence>

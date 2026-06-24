@@ -62,6 +62,14 @@ export interface ResourceGenerationContext {
    * Injectées en priorité dans le prompt via buildContextePedagogique.
    */
   consignes?: string
+
+  // ── Contexte « évaluation finale » (bundle séquence) ───────────────────────
+  /** Digest texte de la séquence complète (cf. buildSequenceDigest). */
+  sequenceDigest?: string
+  /** Sujet d'évaluation déjà généré (contenu_json prof), injecté pour aligner la grille. */
+  sujetGenere?: unknown
+  /** Active la production des champs d'autoévaluation de la grille. */
+  evaluationFinale?: boolean
 }
 
 // ── Interface à implémenter pour chaque type ───────────────────────────────────
@@ -143,6 +151,7 @@ import { oeuvreCompleteDefinition } from './types/oeuvre-complete'
 import { ficheLectureDefinition } from './types/fiche-lecture'
 import { grilleEvaluationDefinition } from './types/grille-evaluation'
 import { carteMentaleDefinition } from './types/carte-mentale'
+import { evaluationSommativeDefinition } from './types/evaluation-sommative'
 
 // ── Registre ──────────────────────────────────────────────────────────────────
 
@@ -158,6 +167,7 @@ const RESOURCE_REGISTRY: ResourceTypeDefinition<any>[] = [
   grilleEvaluationDefinition,
   carteMentaleDefinition,
   dicteeDefinition,
+  evaluationSommativeDefinition,
   // Ajouter les nouveaux types ici dans l'ordre souhaité d'affichage UI
 ]
 

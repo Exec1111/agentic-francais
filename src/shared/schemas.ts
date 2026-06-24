@@ -118,6 +118,7 @@ export const RessourceTypeSchema = z.enum([
   'fiche_lecture',
   'carte_mentale',
   'dictee',
+  'evaluation_sommative',
 ])
 
 export const RessourceAudienceSchema = z.enum(['eleve', 'professeur'])
@@ -126,6 +127,10 @@ export const RessourceAudienceSchema = z.enum(['eleve', 'professeur'])
 export const RessourceStructureeSchema = z.object({
   id: z.string(),
   activite_id: z.string().optional(),
+  /** Rattachement séquence (scope 'evaluation_finale'). Exclusif avec activite_id. */
+  sequence_id: z.string().optional(),
+  /** Portée de la ressource : liée à une activité, ou au niveau séquence (évaluation finale). */
+  scope: z.enum(['activite', 'evaluation_finale']).optional(),
   type: RessourceTypeSchema,
   audience: RessourceAudienceSchema,
   paired_with: z.string().optional(),   // id de l'autre version de la paire

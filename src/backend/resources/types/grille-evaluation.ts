@@ -26,9 +26,42 @@ export const grilleEvaluationDefinition: ResourceTypeDefinition<GrilleEvaluation
     total_points: null, // PROF ONLY
     bareme: null,       // PROF ONLY
     note_prof: null,    // PROF ONLY
+    // Champs autoévaluation : destinés à l'élève (réponses incluses) → conservés.
+    questions_autocontrole: full.questions_autocontrole ?? null,
+    conseils_revision: full.conseils_revision ?? null,
   }),
 
   buildPrompt: (ctx) => {
+    // Deux modes : usage activité classique (contexte activité) vs bundle évaluation
+    // finale (digest séquence + alignement sur le sujet déjà généré + autoévaluation).
+    if (ctx.evaluationFinale) {
+      const digest = ctx.sequenceDigest ?? buildContextePedagogique(ctx)
+      const sujet = ctx.sujetGenere ? JSON.stringify(ctx.sujetGenere, null, 2) : ''
+      const consignes = ctx.consignes?.trim()
+      return [
+        {
+          role: 'system',
+          content: `Tu es un professeur de français agrégé. Tu conçois, pour l'ÉLÈVE, une GRILLE D'AUTOÉVALUATION de l'évaluation finale, en JSON.
+
+RÈGLES :
+- "objectif" : ce qui est évalué dans l'évaluation finale.
+- "competences" : 3 à 8 critères, chacun avec une "description" et 2 à 4 "niveaux" (ex : "Maîtrisé", "En cours", "Non atteint") décrits précisément. Pour cette grille élève, mets "points" à null à chaque niveau.
+- "total_points", "bareme", "note_prof" : null (le barème vit dans le sujet professeur).
+- "questions_autocontrole" : 3 à 6 questions d'autocontrôle AVEC leur réponse. Elles doivent PORTER SUR LES QUESTIONS RÉELLEMENT POSÉES dans le sujet d'évaluation fourni ci-dessous, pour que l'élève vérifie qu'il maîtrise ce qui sera évalué.
+- "conseils_revision" : conseils concrets de révision adressés à l'élève.
+
+${digest}
+${sujet ? `\nSUJET D'ÉVALUATION DÉJÀ GÉNÉRÉ (aligne l'autocontrôle dessus) :\n${sujet}` : ''}`,
+        },
+        {
+          role: 'user',
+          content: `Génère la grille d'autoévaluation "${ctx.ressourceTitre}" en respectant exactement le schéma JSON.${
+            consignes ? `\n\nINSTRUCTIONS DU PROFESSEUR (prioritaires) :\n"${consignes}"` : ''
+          }`,
+        },
+      ]
+    }
+
     const contexte = buildContextePedagogique(ctx)
     return [
       {
@@ -41,6 +74,7 @@ RÈGLES :
 - Chaque compétence a une "description" et 2 à 4 "niveaux" (ex : "Maîtrisé", "En cours", "Non atteint") avec une "description" précise de ce qui correspond à chaque niveau.
 - "points" : points attribués à chaque niveau (PROF ONLY — masqué pour l'élève).
 - "total_points", "bareme" (conversion points → /20), "note_prof" : PROF ONLY.
+- "questions_autocontrole" et "conseils_revision" : laisse-les à null (réservés à l'évaluation finale).
 - Critères concrets, observables, adaptés au niveau et à la tâche.
 
 ${contexte}`,
@@ -110,6 +144,24 @@ function renderGrilleMarkdown(r: GrilleEvaluationContenu, audience: 'professeur'
     if (r.note_prof) {
       lines.push(`> 📝 **Note pédagogique :** ${r.note_prof}`)
     }
+  }
+
+  // Section autoévaluation (contexte évaluation finale) — affichée si présente.
+  if (r.questions_autocontrole && r.questions_autocontrole.length > 0) {
+    lines.push('')
+    lines.push('---')
+    lines.push('## ✅ Auto-évaluation — vérifie que tu maîtrises')
+    lines.push('')
+    r.questions_autocontrole.forEach((q, i) => {
+      lines.push(`**${i + 1}. ${q.question}**`)
+      lines.push('')
+      lines.push(`> 💡 ${q.reponse}`)
+      lines.push('')
+    })
+  }
+  if (r.conseils_revision) {
+    lines.push('---')
+    lines.push(`> 📚 **Conseils de révision :** ${r.conseils_revision}`)
   }
 
   return lines.join('\n')

@@ -19,8 +19,8 @@ export function saveRessourcePaire(paire: RessourcePaire): RessourcePaire {
   const db = getDb()
 
   const upsertStmt = db.prepare(`
-    INSERT INTO ressources (id, activite_id, type, audience, paired_with, contenu_json, contenu_markdown, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO ressources (id, activite_id, sequence_id, scope, type, audience, paired_with, contenu_json, contenu_markdown, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       contenu_json     = excluded.contenu_json,
       contenu_markdown = excluded.contenu_markdown,
@@ -40,6 +40,8 @@ export function saveRessourcePaire(paire: RessourcePaire): RessourcePaire {
       upsertStmt.run(
         paire.eleve.id,
         paire.eleve.activite_id ?? null,
+        paire.eleve.sequence_id ?? null,
+        paire.eleve.scope ?? 'activite',
         paire.eleve.type,
         'eleve',
         null,   // paired_with temporairement null
@@ -54,6 +56,8 @@ export function saveRessourcePaire(paire: RessourcePaire): RessourcePaire {
     upsertStmt.run(
       paire.professeur.id,
       paire.professeur.activite_id ?? null,
+      paire.professeur.sequence_id ?? null,
+      paire.professeur.scope ?? 'activite',
       paire.professeur.type,
       'professeur',
       paire.professeur.paired_with ?? null,
@@ -73,7 +77,50 @@ export function saveRessourcePaire(paire: RessourcePaire): RessourcePaire {
   return paire
 }
 
+/**
+ * Sauvegarde une ressource unique (sans paire). Utilisé quand on ne conserve
+ * qu'une seule version d'une génération — ex. la grille d'autoévaluation du bundle
+ * évaluation finale, dont seule la version élève est persistée.
+ */
+export function saveRessource(r: RessourceStructuree): RessourceStructuree {
+  const db = getDb()
+  const ts = now()
+  db.prepare(`
+    INSERT INTO ressources (id, activite_id, sequence_id, scope, type, audience, paired_with, contenu_json, contenu_markdown, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      contenu_json     = excluded.contenu_json,
+      contenu_markdown = excluded.contenu_markdown,
+      updated_at       = excluded.updated_at
+  `).run(
+    r.id,
+    r.activite_id ?? null,
+    r.sequence_id ?? null,
+    r.scope ?? 'activite',
+    r.type,
+    r.audience,
+    r.paired_with ?? null,
+    toJson(r.contenu_json),
+    r.contenu_markdown,
+    r.created_at ?? ts,
+    ts
+  )
+  return r
+}
+
 // ── Lecture ────────────────────────────────────────────────────────────────────
+
+/** Récupère les ressources rattachées à une séquence pour un scope donné. */
+export function getRessourcesBySequenceScope(
+  sequenceId: string,
+  scope: 'evaluation_finale'
+): RessourceStructuree[] {
+  const db = getDb()
+  const rows = db
+    .prepare('SELECT * FROM ressources WHERE sequence_id = ? AND scope = ? ORDER BY created_at ASC')
+    .all(sequenceId, scope) as any[]
+  return rows.map(rowToRessource)
+}
 
 /** Récupère toutes les ressources liées à une activité. */
 export function getRessourcesByActivite(activiteId: string): RessourceStructuree[] {
@@ -198,12 +245,29 @@ export function deleteRessourcesByActivite(activiteId: string): number {
   return result.changes
 }
 
+/**
+ * Supprime toutes les ressources d'un scope séquence (pour régénération propre du
+ * bundle évaluation finale). Retourne le nombre de ressources supprimées.
+ */
+export function deleteRessourcesBySequenceScope(
+  sequenceId: string,
+  scope: 'evaluation_finale'
+): number {
+  const db = getDb()
+  const result = db
+    .prepare('DELETE FROM ressources WHERE sequence_id = ? AND scope = ?')
+    .run(sequenceId, scope)
+  return result.changes
+}
+
 // ── Helper interne ─────────────────────────────────────────────────────────────
 
 function rowToRessource(row: any): RessourceStructuree {
   return {
     id: row.id,
     activite_id: row.activite_id ?? undefined,
+    sequence_id: row.sequence_id ?? undefined,
+    scope: (row.scope as RessourceStructuree['scope']) ?? undefined,
     type: row.type as RessourceType,
     audience: row.audience as RessourceAudience,
     paired_with: row.paired_with ?? undefined,

@@ -14,7 +14,18 @@
  */
 
 import { getProgrammeReperes } from '@/backend/pedagogie/programmes'
+import { buildCorpusContextBlocks } from '@/backend/workflow-engine'
 import type { ResourceGenerationContext } from './registry'
+import type { Sequence, CorpusItem, RessourceStructuree } from '@/shared/schemas'
+
+/** Plafond de caractères par ressource injectée dans le digest (maîtrise du contexte). */
+const RESSOURCE_EXCERPT_CAP = 1200
+
+function excerpt(md: string): string {
+  const trimmed = (md ?? '').trim()
+  if (trimmed.length <= RESSOURCE_EXCERPT_CAP) return trimmed
+  return trimmed.slice(0, RESSOURCE_EXCERPT_CAP) + '\n…[contenu tronqué]'
+}
 
 export function buildContextePedagogique(ctx: ResourceGenerationContext): string {
   const lines: string[] = ['CONTEXTE PÉDAGOGIQUE :']
@@ -73,6 +84,92 @@ export function buildContextePedagogique(ctx: ResourceGenerationContext): string
     lines.push('')
     lines.push('INSTRUCTIONS COMPLÉMENTAIRES DU PROFESSEUR — à respecter impérativement, elles priment sur les règles générales ci-dessus :')
     lines.push(`"${ctx.consignes.trim()}"`)
+  }
+
+  return lines.join('\n')
+}
+
+/**
+ * Construit un digest texte de la séquence COMPLÈTE, destiné à la génération de
+ * l'évaluation finale. Contrairement à buildContextePedagogique (centré activité),
+ * ce digest décrit toute la séquence : objectifs, compétences, déroulé des séances
+ * et activités, corpus étudié, repères du programme.
+ *
+ * C'est l'ancrage qui garantit que l'évaluation ne porte que sur ce qui a été
+ * réellement enseigné dans la séquence.
+ *
+ * @param activiteResources  Ressources produites en classe, indexées par id d'activité
+ *   (version professeur). Injectées sous chaque activité pour que l'évaluation puise
+ *   ses notions dans les cours et imite le format des exercices réellement travaillés.
+ *   Le contenu de chaque ressource est plafonné (RESSOURCE_EXCERPT_CAP).
+ */
+export function buildSequenceDigest(
+  sequence: Sequence,
+  corpusItems: CorpusItem[] = [],
+  activiteResources: Record<string, RessourceStructuree[]> = {},
+): string {
+  const lines: string[] = ['SÉQUENCE À ÉVALUER (contenu complet) :']
+
+  lines.push(`- Titre : "${sequence.titre}" | Niveau : ${sequence.niveau} | Thème : "${sequence.theme}"`)
+  if (sequence.problematique) {
+    lines.push(`- Problématique : ${sequence.problematique}`)
+  }
+  if (sequence.objectifs?.length) {
+    lines.push(`- Objectifs de la séquence : ${sequence.objectifs.join(' ; ')}`)
+  }
+  if (sequence.competences?.length) {
+    lines.push(`- Compétences travaillées (à évaluer) : ${sequence.competences.join(' ; ')}`)
+  }
+  if (sequence.evaluation_finale) {
+    lines.push(`- Intention d'évaluation finale (note du professeur) : ${sequence.evaluation_finale}`)
+  }
+
+  // Déroulé des séances et activités — ce qui a été travaillé, avec le contenu
+  // des ressources produites (cours, fiches, exercices) lorsqu'il est disponible.
+  lines.push('')
+  lines.push('DÉROULÉ DE LA SÉQUENCE :')
+  let hasResources = false
+  for (const seance of sequence.seances) {
+    lines.push(`• Séance ${seance.numero} — "${seance.titre}"`)
+    if (seance.objectifs?.length) {
+      lines.push(`  Objectifs : ${seance.objectifs.join(' ; ')}`)
+    }
+    for (const a of seance.activites ?? []) {
+      lines.push(`  - Activité "${a.titre}" (${a.type})`)
+      const res = a.id ? activiteResources[a.id] : undefined
+      for (const r of res ?? []) {
+        hasResources = true
+        lines.push(`    ▸ Ressource « ${r.type} » produite pour cette activité :`)
+        lines.push(excerpt(r.contenu_markdown).split('\n').map((l) => `      ${l}`).join('\n'))
+      }
+    }
+  }
+  if (hasResources) {
+    lines.push('')
+    lines.push('→ APPUIE-TOI sur ces ressources : puise les notions dans les cours produits et')
+    lines.push('  imite le FORMAT et le niveau de difficulté des exercices réellement faits en classe.')
+  }
+
+  // Corpus étudié
+  const withContent = corpusItems.filter((item) => item.contenu)
+  if (corpusItems.length > 0) {
+    lines.push('')
+    lines.push('CORPUS ÉTUDIÉ DANS LA SÉQUENCE :')
+    for (const item of corpusItems) {
+      lines.push(`- "${item.titre}" — ${item.auteur} (${item.oeuvre})`)
+    }
+    if (withContent.length > 0) {
+      lines.push('')
+      lines.push('Textes disponibles intégralement (utilisables comme support de l\'évaluation) :')
+      lines.push(buildCorpusContextBlocks(withContent))
+    }
+  }
+
+  // Repères du programme
+  const reperes = getProgrammeReperes(sequence.niveau)
+  if (reperes) {
+    lines.push('')
+    lines.push(reperes)
   }
 
   return lines.join('\n')

@@ -202,6 +202,18 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_corpus_parent ON corpus(parent_id);
     `,
   },
+  {
+    version: 8,
+    name: 'ressources_sequence_scope',
+    sql: `
+      -- Rattachement d'une ressource au niveau séquence (évaluation finale).
+      -- Une ressource a soit activite_id (scope 'activite'), soit sequence_id
+      -- (scope 'evaluation_finale'). L'invariant est garanti par le code applicatif.
+      ALTER TABLE ressources ADD COLUMN sequence_id TEXT REFERENCES sequences(id) ON DELETE CASCADE;
+      ALTER TABLE ressources ADD COLUMN scope       TEXT NOT NULL DEFAULT 'activite';
+      CREATE INDEX IF NOT EXISTS idx_ressources_sequence ON ressources(sequence_id);
+    `,
+  },
 ]
 
 function runMigrations(db: Database.Database) {

@@ -96,12 +96,25 @@ export const GrilleCompetenceSchema = z.object({
   niveaux: z.array(GrilleNiveauSchema).min(2).max(4),
 })
 
+// Q/R d'autocontrôle de la grille — activé uniquement en contexte « évaluation finale ».
+// La réponse est fournie d'emblée (autocontrôle, ce n'est pas un exercice noté).
+export const GrilleAutoControleSchema = z.object({
+  question: z.string(),
+  reponse: z.string(),
+})
+
 export const GrilleEvaluationContenuSchema = z.object({
   objectif: z.string(),
   competences: z.array(GrilleCompetenceSchema).min(1).max(8),
   total_points: z.number().nullable().describe('PROF ONLY — total des points possibles'),
   bareme: z.string().nullable().describe('PROF ONLY — table de conversion points → note /20'),
   note_prof: z.string().nullable().describe('PROF ONLY — comment présenter la grille aux élèves'),
+  // Champs « autoévaluation » — remplis seulement en contexte évaluation finale,
+  // null/absent en usage activité classique. Destinés à l'élève (réponses incluses).
+  questions_autocontrole: z.array(GrilleAutoControleSchema).nullable()
+    .describe('Q/R d\'autocontrôle alignées sur le sujet — contexte évaluation finale uniquement'),
+  conseils_revision: z.string().nullable()
+    .describe('Conseils de révision pour l\'élève — contexte évaluation finale uniquement'),
 })
 
 export type GrilleEvaluationContenu = z.infer<typeof GrilleEvaluationContenuSchema>
@@ -153,3 +166,27 @@ export const CarteMentaleContenuSchema = z.object({
 })
 
 export type CarteMentaleContenu = z.infer<typeof CarteMentaleContenuSchema>
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ÉVALUATION SOMMATIVE (sujet d'évaluation finale — versions élève et professeur)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const EvalQuestionSchema = z.object({
+  numero: z.number(),
+  enonce: z.string(),
+  competence_evaluee: z.string().describe('Compétence de la séquence évaluée par cette question'),
+  bareme_points: z.number().nullable().describe('PROF ONLY — points attribués à cette question'),
+  corrige: z.string().nullable().describe('PROF ONLY — réponse attendue / éléments de correction'),
+})
+
+export const EvaluationSommativeContenuSchema = z.object({
+  titre: z.string(),
+  consignes_generales: z.string().describe('Durée, matériel autorisé, modalités de passation'),
+  support_texte: z.string().nullable().describe('Texte à analyser (extrait corpus ou texte court ad hoc), ou null'),
+  questions: z.array(EvalQuestionSchema).min(1),
+  total_points: z.number().nullable().describe('PROF ONLY — total des points possibles'),
+  bareme: z.string().nullable().describe('PROF ONLY — conversion points → note /20'),
+  note_prof: z.string().nullable().describe('PROF ONLY — conseils de passation / corrigé global'),
+})
+
+export type EvaluationSommativeContenu = z.infer<typeof EvaluationSommativeContenuSchema>
