@@ -13,9 +13,10 @@ import { EditableList } from './EditableList'
 import { ResourcePanel } from './ResourcePanel'
 import { CorpusViewer } from './CorpusViewer'
 import { TextDepositPanel } from './TextDepositPanel'
+import { EvaluationFinaleSection } from './EvaluationFinaleSection'
 import type { ResourcePanelContext } from './ResourcePanel'
 import type { useSequenceEditor, SequencePath } from '@/frontend/hooks/useSequenceEditor'
-import type { Activite, CorpusItem } from '@/shared/schemas'
+import type { Activite, CorpusItem, RessourceStructuree } from '@/shared/schemas'
 import { ACTIVITES_CORPUS, inferCorpusRefs, resolveActiviteCorpusRefs } from '@/shared/corpus-match'
 
 // Config visuelle des types de ressources IA (utilisée dans l'accordéon)
@@ -30,6 +31,7 @@ const RESOURCE_TYPE_CONFIG: Record<string, { label: string; chip: string }> = {
   fiche_lecture:     { label: 'Fiche lecture',  chip: 'bg-indigo-500/10 text-indigo-400 border-indigo-600/30' },
   carte_mentale:     { label: 'Carte mentale',  chip: 'bg-teal-500/10 text-teal-400 border-teal-600/30' },
   dictee:            { label: 'Dictée',         chip: 'bg-rose-500/10 text-rose-400 border-rose-600/30' },
+  evaluation_sommative: { label: "Sujet d'éval.", chip: 'bg-red-500/10 text-red-400 border-red-600/30' },
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -94,6 +96,12 @@ type EditorReturn = ReturnType<typeof useSequenceEditor>
 interface SequenceEditorProps {
   editor: EditorReturn
   provider?: string
+  /**
+   * Génère le bundle « évaluation finale ». Implémenté par le parent (HomePage) qui
+   * garantit la sauvegarde préalable de la séquence puis appelle l'API. Si absent,
+   * la section évaluation finale masque le bouton de génération.
+   */
+  onGenerateEvaluation?: (consignes?: string) => Promise<RessourceStructuree[]>
 }
 
 const PANEL_CLOSED: ResourcePanelContext = {
@@ -138,7 +146,7 @@ export function corpusTooltip(meta: CorpusMeta | undefined, label: string): stri
   return `Lire le texte : ${label}`
 }
 
-export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
+export function SequenceEditor({ editor, provider, onGenerateEvaluation }: SequenceEditorProps) {
   const { sequence } = editor
   const [panelOpen, setPanelOpen] = useState(false)
   const [panelContext, setPanelContext] = useState<ResourcePanelContext>(PANEL_CLOSED)
@@ -507,16 +515,24 @@ export function SequenceEditor({ editor, provider }: SequenceEditorProps) {
       </div>
 
       {/* Évaluation finale */}
-      <div className="bg-red-950/30 rounded-xl border border-red-800/30 p-4">
-        <h3 className="text-sm font-semibold text-red-300 mb-2">Évaluation finale</h3>
-        <EditableText
-          value={sequence.evaluation_finale || ''}
-          onSave={(v) => editor.updateField({ level: 'sequence', field: 'evaluation_finale' }, v)}
-          className="text-sm text-red-200/80"
-          placeholder="Ajouter une évaluation finale..."
-          multiline
-          as="p"
-        />
+      <div className="bg-red-950/30 rounded-xl border border-red-800/30 p-4 space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold text-red-300 mb-2">Évaluation finale</h3>
+          <EditableText
+            value={sequence.evaluation_finale || ''}
+            onSave={(v) => editor.updateField({ level: 'sequence', field: 'evaluation_finale' }, v)}
+            className="text-sm text-red-200/80"
+            placeholder="Ajouter une évaluation finale..."
+            multiline
+            as="p"
+          />
+        </div>
+        {onGenerateEvaluation && (
+          <EvaluationFinaleSection
+            sequenceId={sequence.id}
+            onGenerate={onGenerateEvaluation}
+          />
+        )}
       </div>
     </motion.div>
 

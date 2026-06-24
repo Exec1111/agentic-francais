@@ -8,9 +8,10 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { buildContextePedagogique } from '../prompt-context'
+import { buildContextePedagogique, buildSequenceDigest } from '../prompt-context'
 import { getProgrammeReperes, normalizeNiveau } from '@/backend/pedagogie/programmes'
 import type { ResourceGenerationContext } from '../registry'
+import type { Sequence, RessourceStructuree } from '@/shared/schemas'
 
 const minimalCtx = (overrides: Partial<ResourceGenerationContext> = {}): ResourceGenerationContext => ({
   sequenceTitle: 'Le voyage en poésie',
@@ -139,5 +140,61 @@ describe('normalizeNiveau / getProgrammeReperes', () => {
       expect(reperes).toContain('Entrées du programme')
       expect(reperes).toContain('Calibrage de la difficulté')
     }
+  })
+})
+
+// ── buildSequenceDigest (évaluation finale) ───────────────────────────────────
+
+describe('buildSequenceDigest', () => {
+  const sequence = (): Sequence => ({
+    id: 'seq-1',
+    titre: 'Le récit d\'aventure',
+    niveau: '5e',
+    theme: 'Le voyage et l\'aventure',
+    problematique: 'Pourquoi partir vers l\'inconnu ?',
+    objectifs: ['Comprendre le schéma narratif'],
+    competences: ['Lire un récit', 'Rédiger un récit'],
+    corpus_refs: [],
+    ressources: [],
+    seances: [
+      {
+        numero: 1, titre: 'Le départ', duree: 55, objectifs: ['Repérer la situation initiale'], ressources: [],
+        activites: [{ id: 'act-1', titre: 'Étude du schéma narratif', type: 'lecture', duree: 30, consigne: '', corpus_refs: [], ressources: [] }],
+      },
+    ],
+    evaluation_finale: 'Contrôle de lecture et rédaction',
+  })
+
+  const res = (over: Partial<RessourceStructuree>): RessourceStructuree => ({
+    id: 'r1', type: 'cours', audience: 'professeur',
+    contenu_json: {}, contenu_markdown: 'Le schéma narratif comporte cinq étapes.', ...over,
+  })
+
+  it('liste le déroulé, les objectifs et les compétences', () => {
+    const d = buildSequenceDigest(sequence())
+    expect(d).toContain('Le récit d\'aventure')
+    expect(d).toContain('Compétences travaillées (à évaluer) : Lire un récit ; Rédiger un récit')
+    expect(d).toContain('Activité "Étude du schéma narratif" (lecture)')
+  })
+
+  it('injecte le contenu des ressources produites et invite à s\'appuyer dessus', () => {
+    const d = buildSequenceDigest(sequence(), [], {
+      'act-1': [res({ contenu_markdown: 'NOTION_CLE : le schéma narratif en cinq étapes.' })],
+    })
+    expect(d).toContain('Ressource « cours »')
+    expect(d).toContain('NOTION_CLE')
+    expect(d).toContain('imite le FORMAT')
+  })
+
+  it('plafonne le contenu d\'une ressource trop longue', () => {
+    const long = 'A'.repeat(5000)
+    const d = buildSequenceDigest(sequence(), [], { 'act-1': [res({ contenu_markdown: long })] })
+    expect(d).toContain('[contenu tronqué]')
+    expect(d).not.toContain('A'.repeat(2000))
+  })
+
+  it('sans ressources, n\'affiche pas l\'invite d\'appui', () => {
+    const d = buildSequenceDigest(sequence())
+    expect(d).not.toContain('imite le FORMAT')
   })
 })

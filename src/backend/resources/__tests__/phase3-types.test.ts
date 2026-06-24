@@ -12,9 +12,10 @@ import { oeuvreCompleteDefinition } from '../types/oeuvre-complete'
 import { ficheLectureDefinition } from '../types/fiche-lecture'
 import { grilleEvaluationDefinition } from '../types/grille-evaluation'
 import { carteMentaleDefinition } from '../types/carte-mentale'
+import { evaluationSommativeDefinition } from '../types/evaluation-sommative'
 import type {
   DicteeContenu, OeuvreCompleteContenu, FicheLectureContenu,
-  GrilleEvaluationContenu, CarteMentaleContenu,
+  GrilleEvaluationContenu, CarteMentaleContenu, EvaluationSommativeContenu,
 } from '@/shared/resource-schemas'
 
 // ── dictee (TEACHER_ONLY) ─────────────────────────────────────────────────────
@@ -109,6 +110,7 @@ describe('grille_evaluation', () => {
       ],
     }],
     total_points: 4, bareme: '4 pts = 20/20', note_prof: 'Présenter avant la tâche.',
+    questions_autocontrole: null, conseils_revision: null,
   }
 
   it('prof montre points et barème, élève non', () => {
@@ -123,6 +125,63 @@ describe('grille_evaluation', () => {
     // Les critères restent visibles pour l'élève
     expect(ele).toContain('Cohérence')
     expect(ele).toContain('Maîtrisé')
+  })
+
+  it('autoévaluation : Q/R et conseils visibles côté élève (contexte éval finale)', () => {
+    const withAuto: GrilleEvaluationContenu = {
+      ...full,
+      questions_autocontrole: [
+        { question: 'Ai-je une thèse claire ?', reponse: 'Oui, annoncée en intro.' },
+      ],
+      conseils_revision: 'Relire la fiche méthode argumentation.',
+    }
+    const student = grilleEvaluationDefinition.toStudentVersion!(withAuto) as GrilleEvaluationContenu
+    const ele = grilleEvaluationDefinition.toMarkdown.eleve!(student as never)
+    expect(ele).toContain('Ai-je une thèse claire ?')
+    expect(ele).toContain('Oui, annoncée en intro.')
+    expect(ele).toContain('Relire la fiche méthode')
+    // Mais toujours pas de barème
+    expect(ele).not.toContain('4 pts = 20/20')
+  })
+})
+
+// ── evaluation_sommative (TWO_VERSIONS) ───────────────────────────────────────
+
+describe('evaluation_sommative', () => {
+  const full: EvaluationSommativeContenu = {
+    titre: 'Évaluation finale — Le récit d\'aventure',
+    consignes_generales: 'Durée : 1h. Aucun document autorisé.',
+    support_texte: 'Le navire fendait les flots déchaînés…',
+    questions: [
+      {
+        numero: 1,
+        enonce: 'Relevez deux indices du danger.',
+        competence_evaluee: 'Lire et comprendre un texte narratif',
+        bareme_points: 4,
+        corrige: 'CORRIGE_SECRET : les deux indices attendus du péril.',
+      },
+    ],
+    total_points: 20,
+    bareme: '20 pts = 20/20',
+    note_prof: 'Valoriser les justifications par citation.',
+  }
+
+  it('prof affiche barème et corrigé, élève non', () => {
+    const pro = evaluationSommativeDefinition.toMarkdown.professeur(full as never)
+    expect(pro).toContain('CORRIGE_SECRET')    // corrigé
+    expect(pro).toContain('4 pts')              // barème par question
+    expect(pro).toContain('20 pts = 20/20')
+
+    const student = evaluationSommativeDefinition.toStudentVersion!(full) as EvaluationSommativeContenu
+    const ele = evaluationSommativeDefinition.toMarkdown.eleve!(student as never)
+    // L'énoncé et le support restent visibles
+    expect(ele).toContain('Relevez deux indices')
+    expect(ele).toContain('Le navire fendait')
+    // Mais aucun élément PROF ONLY ne fuite
+    expect(ele).not.toContain('CORRIGE_SECRET')
+    expect(ele).not.toContain('4 pts')
+    expect(ele).not.toContain('20 pts = 20/20')
+    expect(ele).not.toContain('Valoriser les justifications')
   })
 })
 

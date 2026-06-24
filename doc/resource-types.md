@@ -337,8 +337,15 @@ Avant de considérer le type comme complet :
 | `grille_evaluation` | TWO_VERSIONS | `competences[].niveaux[].points`, `total_points`, `bareme`, `note_prof` | `production_ecrite`, `evaluation`, `oral` |
 | `carte_mentale` | TWO_VERSIONS | nœuds `a_completer` masqués côté élève, `note_prof` | `recherche`, `collaboration` |
 | `dictee` | TEACHER_ONLY | *(document entier, pas de version élève)* | `exercice`, `evaluation` |
+| `evaluation_sommative` | TWO_VERSIONS | `questions[].bareme_points`, `questions[].corrige`, `total_points`, `bareme`, `note_prof` | *(aucun — déclenché par le bouton « évaluation finale »)* |
 
-**Les 10 types déclarés dans `RessourceTypeSchema` sont désormais implémentés.**
+**Les 11 types déclarés dans `RessourceTypeSchema` sont désormais implémentés.**
+
+> **Évaluation finale** (cf. [`doc/evaluation-finale.md`](./evaluation-finale.md)) : `evaluation_sommative`
+> et l'extension `questions_autocontrole`/`conseils_revision` de `grille_evaluation` ne sont pas
+> suggérés au niveau activité. Ils sont produits ensemble par `POST /api/generate/evaluation`
+> (génération chaînée sujet → autoévaluation) et rattachés à la **séquence** (scope
+> `evaluation_finale`, colonnes `ressources.sequence_id`/`scope`), pas à une activité.
 
 Les 5 premiers (🟦) sont de la famille « document par blocs » ; `extrait_oeuvre`, `oeuvre_complete`,
 `fiche_lecture`, `grille_evaluation`, `carte_mentale` et `dictee` (🟧) sont de la famille « schéma
