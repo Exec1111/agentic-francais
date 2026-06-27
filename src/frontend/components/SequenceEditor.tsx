@@ -5,9 +5,11 @@ import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion
 import {
   BookOpen, Target, Award, Clock, FileText, Plus, Trash2, X, Search,
   ChevronRight, Undo2, Redo2, AlertTriangle,
-  RefreshCw, Loader2, Sparkles, User, GraduationCap, Lock, Eye, GripVertical, Upload,
+  RefreshCw, Loader2, Sparkles, User, GraduationCap, Lock, Eye, GripVertical, Upload, Users,
 } from 'lucide-react'
 import { cn } from '@/shared/utils'
+import { PROFIL_UI_LIST, resolveActiveProfils } from '@/shared/differentiation-profils'
+import type { DifferentiationProfil } from '@/shared/schemas'
 import { EditableText } from './EditableText'
 import { EditableList } from './EditableList'
 import { ResourcePanel } from './ResourcePanel'
@@ -154,6 +156,7 @@ export function SequenceEditor({ editor, provider, onGenerateEvaluation }: Seque
   const [refreshKey, setRefreshKey] = useState<Record<string, number>>({})
   const [objectifsOpen, setObjectifsOpen] = useState(false)
   const [competencesOpen, setCompetencesOpen] = useState(false)
+  const [differenciationOpen, setDifferenciationOpen] = useState(false)
   // Texte du corpus affiché dans le panneau de lecture (null = fermé)
   const [viewCorpusId, setViewCorpusId] = useState<string | null>(null)
   // Métadonnées corpus chargées une seule fois ici, partagées avec les chips
@@ -221,6 +224,7 @@ export function SequenceEditor({ editor, provider, onGenerateEvaluation }: Seque
         autresActivites: seance?.activites
           .filter((a) => a !== activite)
           .map((a) => ({ titre: a.titre, type: a.type, duree: a.duree })),
+        activeProfils: sequence.differentiation_profils,
       }
     }
     setPanelContext(enriched)
@@ -457,6 +461,65 @@ export function SequenceEditor({ editor, provider, onGenerateEvaluation }: Seque
                 placeholder="Nouvelle compétence..."
                 addLabel="Ajouter une compétence"
               />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Différenciation — profils d'élèves de la classe (préférences séquence) */}
+      <div className="bg-gray-900/50 rounded-xl border border-gray-800 overflow-hidden">
+        <button
+          onClick={() => setDifferenciationOpen((v) => !v)}
+          className="w-full px-4 py-3 flex items-center gap-2 hover:bg-gray-800/30 transition-colors"
+        >
+          <Users className="h-4 w-4 text-indigo-400" />
+          <h3 className="text-sm font-semibold text-gray-300">Différenciation</h3>
+          <span className="ml-1 text-xs text-gray-600">
+            ({resolveActiveProfils(sequence.differentiation_profils).length}/{PROFIL_UI_LIST.length} profils)
+          </span>
+        </button>
+        <AnimatePresence>
+          {differenciationOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden border-t border-gray-800 px-4 py-3"
+            >
+              <p className="text-xs text-gray-500 mb-3 leading-relaxed">
+                Sélectionnez les profils d'élèves présents dans cette classe. Seules ces variantes
+                seront proposées lors de la génération des ressources (allégée, enrichie, dys, allophone).
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {PROFIL_UI_LIST.map((p) => {
+                  const enabledIds = resolveActiveProfils(sequence.differentiation_profils).map((x) => x.id)
+                  const enabled = enabledIds.includes(p.id)
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => {
+                        const set = new Set<DifferentiationProfil>(enabledIds)
+                        if (enabled) set.delete(p.id); else set.add(p.id)
+                        editor.updateField(
+                          { level: 'sequence', field: 'differentiation_profils' },
+                          PROFIL_UI_LIST.filter((x) => set.has(x.id)).map((x) => x.id),
+                        )
+                      }}
+                      title={p.description}
+                      className={cn(
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all',
+                        enabled
+                          ? 'bg-indigo-600/20 border-indigo-600/50 text-indigo-200'
+                          : 'border-gray-700 text-gray-500 hover:border-gray-600 hover:text-gray-300',
+                      )}
+                    >
+                      <span>{p.emoji}</span>
+                      {p.label}
+                    </button>
+                  )
+                })}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

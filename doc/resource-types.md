@@ -5,6 +5,7 @@
 > Voir aussi :
 > - [`doc/concepts.md`](./concepts.md) — glossaire complet des notions métier
 > - [`doc/fiche-questions-blocs.md`](./fiche-questions-blocs.md) — documentation du système de blocs (type `fiche_questions`)
+> - [`doc/differenciation.md`](./differenciation.md) — variantes élève adaptées (allégée, enrichie, dys, allophone)
 
 ---
 
@@ -24,6 +25,11 @@ LLM génère → ResourceComplet (JSON structuré)
 ```
 
 Cela garantit la cohérence entre les deux versions (même exercice, même corrigé).
+
+> **Troisième axe : la différenciation.** Tout type `TWO_VERSIONS` peut produire des
+> **variantes élève adaptées** (allégée, enrichie, dys, allophone) en re-soumettant le
+> JSON au LLM avec les règles d'un profil, sur le même schéma. Voir
+> [`doc/differenciation.md`](./differenciation.md).
 
 ---
 

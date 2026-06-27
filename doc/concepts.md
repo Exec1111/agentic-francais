@@ -99,6 +99,25 @@ Les ressources de catégorie `TWO_VERSIONS` génèrent automatiquement les deux 
 
 ---
 
+## Profils de différenciation
+
+> Défini dans `src/shared/schemas.ts` — enum `DifferentiationProfilSchema`
+
+Axe orthogonal à l'audience : une **variante** est une version élève adaptée à un profil
+d'élève, dérivée d'une ressource professeur (`derived_from`).
+
+| Profil | Public visé |
+|--------|-------------|
+| `standard` | version élève de référence (non adaptée) |
+| `allegee` | élèves en difficulté (étayage, simplification) |
+| `enrichie` | élèves rapides (approfondissement) |
+| `dys` | troubles dys (phrases courtes, police adaptée) |
+| `allophone` | allophones (reformulations, glossaire enrichi) |
+
+Détail du mécanisme : [`doc/differenciation.md`](./differenciation.md).
+
+---
+
 ## Types de blocs (`fiche_questions`)
 
 > Défini dans `src/shared/resource-blocks.ts` — `BlocTypeSchema`

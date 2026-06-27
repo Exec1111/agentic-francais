@@ -52,8 +52,8 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
   const timestamp = now()
 
   const insertSeq = db.prepare(`
-    INSERT INTO sequences (id, titre, niveau, theme, problematique, evaluation_finale, objectifs, competences, corpus_refs, ressources, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sequences (id, titre, niveau, theme, problematique, evaluation_finale, objectifs, competences, corpus_refs, differentiation_profils, ressources, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       titre = excluded.titre,
       niveau = excluded.niveau,
@@ -63,6 +63,7 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
       objectifs = excluded.objectifs,
       competences = excluded.competences,
       corpus_refs = excluded.corpus_refs,
+      differentiation_profils = excluded.differentiation_profils,
       ressources = excluded.ressources,
       updated_at = excluded.updated_at
   `)
@@ -80,6 +81,7 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
       toJson(sequence.objectifs),
       toJson(sequence.competences),
       toJson(sequence.corpus_refs || []),
+      sequence.differentiation_profils ? toJson(sequence.differentiation_profils) : null,
       toJson(sequence.ressources || []),
       sequence.createdAt ?? timestamp,
       timestamp
@@ -189,6 +191,9 @@ export function getSequenceById(id: string): SequenceWithReview | null {
     objectifs: fromJson<string[]>(row.objectifs),
     competences: fromJson<string[]>(row.competences),
     corpus_refs: fromJson<string[]>(row.corpus_refs ?? '[]'),
+    differentiation_profils: row.differentiation_profils
+      ? fromJson<Sequence['differentiation_profils']>(row.differentiation_profils)
+      : undefined,
     seances: [],
     ressources: fromJson<Ressource[]>(row.ressources),
     createdAt: row.created_at,

@@ -19,8 +19,8 @@ export function saveRessourcePaire(paire: RessourcePaire): RessourcePaire {
   const db = getDb()
 
   const upsertStmt = db.prepare(`
-    INSERT INTO ressources (id, activite_id, sequence_id, scope, type, audience, paired_with, contenu_json, contenu_markdown, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO ressources (id, activite_id, sequence_id, scope, type, audience, profil, derived_from, paired_with, contenu_json, contenu_markdown, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       contenu_json     = excluded.contenu_json,
       contenu_markdown = excluded.contenu_markdown,
@@ -44,6 +44,8 @@ export function saveRessourcePaire(paire: RessourcePaire): RessourcePaire {
         paire.eleve.scope ?? 'activite',
         paire.eleve.type,
         'eleve',
+        paire.eleve.profil ?? 'standard',
+        paire.eleve.derived_from ?? null,
         null,   // paired_with temporairement null
         toJson(paire.eleve.contenu_json),
         paire.eleve.contenu_markdown,
@@ -60,6 +62,8 @@ export function saveRessourcePaire(paire: RessourcePaire): RessourcePaire {
       paire.professeur.scope ?? 'activite',
       paire.professeur.type,
       'professeur',
+      paire.professeur.profil ?? 'standard',
+      paire.professeur.derived_from ?? null,
       paire.professeur.paired_with ?? null,
       toJson(paire.professeur.contenu_json),
       paire.professeur.contenu_markdown,
@@ -86,8 +90,8 @@ export function saveRessource(r: RessourceStructuree): RessourceStructuree {
   const db = getDb()
   const ts = now()
   db.prepare(`
-    INSERT INTO ressources (id, activite_id, sequence_id, scope, type, audience, paired_with, contenu_json, contenu_markdown, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO ressources (id, activite_id, sequence_id, scope, type, audience, profil, derived_from, paired_with, contenu_json, contenu_markdown, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       contenu_json     = excluded.contenu_json,
       contenu_markdown = excluded.contenu_markdown,
@@ -99,6 +103,8 @@ export function saveRessource(r: RessourceStructuree): RessourceStructuree {
     r.scope ?? 'activite',
     r.type,
     r.audience,
+    r.profil ?? 'standard',
+    r.derived_from ?? null,
     r.paired_with ?? null,
     toJson(r.contenu_json),
     r.contenu_markdown,
@@ -106,6 +112,15 @@ export function saveRessource(r: RessourceStructuree): RessourceStructuree {
     ts
   )
   return r
+}
+
+/** Récupère les variantes différenciées (audience élève) dérivées d'une ressource prof. */
+export function getVariantesByBase(baseId: string): RessourceStructuree[] {
+  const db = getDb()
+  const rows = db
+    .prepare('SELECT * FROM ressources WHERE derived_from = ? ORDER BY created_at ASC')
+    .all(baseId) as any[]
+  return rows.map(rowToRessource)
 }
 
 // ── Lecture ────────────────────────────────────────────────────────────────────
@@ -215,8 +230,9 @@ export function updateRessourceContenu(
 // ── Suppression ────────────────────────────────────────────────────────────────
 
 /**
- * Supprime une ressource et sa paire liée.
- * Retourne le nombre de ressources supprimées (1 ou 2).
+ * Supprime une ressource, sa paire liée, et toutes les variantes différenciées
+ * dérivées (de l'une ou l'autre version).
+ * Retourne le nombre de ressources supprimées.
  */
 export function deleteRessourcePaire(id: string): number {
   const db = getDb()
@@ -224,7 +240,13 @@ export function deleteRessourcePaire(id: string): number {
   const row = db.prepare('SELECT paired_with FROM ressources WHERE id = ?').get(id) as any
   if (!row) return 0
 
-  const idsToDelete = [id, row.paired_with].filter(Boolean)
+  const baseIds = [id, row.paired_with].filter(Boolean) as string[]
+  // Variantes dérivées de l'une des deux versions (suppression explicite : ne pas
+  // dépendre du PRAGMA foreign_keys, qui peut être désactivé selon la connexion).
+  const variantIds = baseIds.flatMap((bid) =>
+    (db.prepare('SELECT id FROM ressources WHERE derived_from = ?').all(bid) as any[]).map((r) => r.id)
+  )
+  const idsToDelete = Array.from(new Set([...baseIds, ...variantIds]))
 
   const tx = db.transaction(() => {
     let count = 0
@@ -270,6 +292,8 @@ function rowToRessource(row: any): RessourceStructuree {
     scope: (row.scope as RessourceStructuree['scope']) ?? undefined,
     type: row.type as RessourceType,
     audience: row.audience as RessourceAudience,
+    profil: (row.profil as RessourceStructuree['profil']) ?? undefined,
+    derived_from: row.derived_from ?? undefined,
     paired_with: row.paired_with ?? undefined,
     contenu_json: fromJson<Record<string, unknown>>(row.contenu_json),
     contenu_markdown: row.contenu_markdown,
