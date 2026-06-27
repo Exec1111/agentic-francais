@@ -123,6 +123,22 @@ export const RessourceTypeSchema = z.enum([
 
 export const RessourceAudienceSchema = z.enum(['eleve', 'professeur'])
 
+// Profil de différenciation d'une ressource élève.
+//  - 'standard'  : version élève de référence (dérivée directement de la génération)
+//  - 'allegee'   : élèves en difficulté (étayage, moins de questions, consignes simplifiées)
+//  - 'enrichie'  : élèves rapides (approfondissement, ouverture, complexité accrue)
+//  - 'dys'       : profil dys (phrases courtes, lexique simple, rendu en police adaptée)
+//  - 'allophone' : allophones (reformulations, glossaire enrichi, consignes très explicites)
+// Une variante (profil != 'standard') est une ressource élève dérivée d'une ressource
+// professeur source, reliée par RessourceStructuree.derived_from.
+export const DifferentiationProfilSchema = z.enum([
+  'standard',
+  'allegee',
+  'enrichie',
+  'dys',
+  'allophone',
+])
+
 // Ressource structurée (nouveau système — stockée dans la table `ressources`)
 export const RessourceStructureeSchema = z.object({
   id: z.string(),
@@ -133,6 +149,10 @@ export const RessourceStructureeSchema = z.object({
   scope: z.enum(['activite', 'evaluation_finale']).optional(),
   type: RessourceTypeSchema,
   audience: RessourceAudienceSchema,
+  /** Profil de différenciation. Absent/'standard' = version de référence. */
+  profil: DifferentiationProfilSchema.optional(),
+  /** Pour une variante différenciée : id de la ressource PROF source dont elle dérive. */
+  derived_from: z.string().optional(),
   paired_with: z.string().optional(),   // id de l'autre version de la paire
   contenu_json: z.record(z.unknown()),  // contenu structuré selon le type
   contenu_markdown: z.string(),         // rendu Markdown prêt à afficher / exporter
@@ -140,9 +160,11 @@ export const RessourceStructureeSchema = z.object({
 })
 
 // Réponse API : une paire de ressources (prof + élève optionnel)
+// `variantes` : versions élève différenciées dérivées du professeur (allégée, enrichie, dys…).
 export const RessourcePaireSchema = z.object({
   professeur: RessourceStructureeSchema,
   eleve: RessourceStructureeSchema.optional(),
+  variantes: z.array(RessourceStructureeSchema).optional(),
 })
 
 export const ExerciceFormatSchema = z.enum([
@@ -201,6 +223,12 @@ export const SequenceSchema = z.object({
   objectifs: z.array(z.string()),
   competences: z.array(z.string()),
   corpus_refs: z.array(z.string()).default([]),
+  /**
+   * Profils de différenciation actifs pour cette séquence (préférences « classe »).
+   * Restreint les variantes proposées dans le panneau de ressources. Absent/undefined
+   * = tous les profils proposés (comportement par défaut). Voir doc/differenciation.md.
+   */
+  differentiation_profils: z.array(DifferentiationProfilSchema).optional(),
   seances: z.array(SeanceSchema),
   evaluation_finale: z.string().optional(),
   ressources: z.array(RessourceSchema).optional().default([]),
@@ -303,6 +331,7 @@ export const ReactDecisionSchema = z.object({
 export type Ressource = z.infer<typeof RessourceSchema>
 export type RessourceType = z.infer<typeof RessourceTypeSchema>
 export type RessourceAudience = z.infer<typeof RessourceAudienceSchema>
+export type DifferentiationProfil = z.infer<typeof DifferentiationProfilSchema>
 export type RessourceStructuree = z.infer<typeof RessourceStructureeSchema>
 export type RessourcePaire = z.infer<typeof RessourcePaireSchema>
 export type ExerciceFormat = z.infer<typeof ExerciceFormatSchema>

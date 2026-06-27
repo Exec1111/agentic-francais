@@ -214,6 +214,29 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_ressources_sequence ON ressources(sequence_id);
     `,
   },
+  {
+    version: 9,
+    name: 'ressources_differentiation',
+    sql: `
+      -- Différenciation : variantes élève dérivées d'une ressource professeur.
+      -- profil 'standard' = version de référence ; les variantes (allegee, enrichie,
+      -- dys, allophone) sont des ressources audience='eleve' reliées au prof source
+      -- par derived_from (CASCADE : supprimer le prof supprime ses variantes).
+      ALTER TABLE ressources ADD COLUMN profil       TEXT NOT NULL DEFAULT 'standard';
+      ALTER TABLE ressources ADD COLUMN derived_from TEXT REFERENCES ressources(id) ON DELETE CASCADE;
+      CREATE INDEX IF NOT EXISTS idx_ressources_derived ON ressources(derived_from);
+    `,
+  },
+  {
+    version: 10,
+    name: 'sequence_differentiation_profils',
+    sql: `
+      -- Préférences « classe » : profils de différenciation actifs pour la séquence
+      -- (JSON array). NULL = tous les profils proposés (défaut). Filtre les variantes
+      -- présentées dans le panneau de ressources.
+      ALTER TABLE sequences ADD COLUMN differentiation_profils TEXT;
+    `,
+  },
 ]
 
 function runMigrations(db: Database.Database) {

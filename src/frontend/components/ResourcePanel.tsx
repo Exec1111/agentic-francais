@@ -7,8 +7,9 @@ import {
   Printer, CheckCircle2, Loader2, Plus, AlertCircle, Save, RefreshCw, Trash2, Lock,
 } from 'lucide-react'
 import { cn } from '@/shared/utils'
-import type { RessourcePaire, RessourceStructuree, RessourceType } from '@/shared/schemas'
+import type { RessourcePaire, RessourceStructuree, RessourceType, DifferentiationProfil } from '@/shared/schemas'
 import { RessourceTypeSchema } from '@/shared/schemas'
+import { getProfilUI, resolveActiveProfils, type ProfilRenderHints } from '@/shared/differentiation-profils'
 import { getBlocResourceUI, MANUAL_BLOC_TYPES, type BlocsContenu } from './blocs-registry'
 
 // ── Config des types ───────────────────────────────────────────────────────────
@@ -68,6 +69,11 @@ export interface ResourcePanelContext {
   activiteDuree?: number
   progression?: { numero: number; titre: string }[]
   autresActivites?: { titre: string; type: string; duree?: number }[]
+  /**
+   * Profils de différenciation actifs pour la séquence (préférences « classe »).
+   * undefined = tous proposés. Filtre les chips de variantes. Voir resolveActiveProfils.
+   */
+  activeProfils?: DifferentiationProfil[]
 }
 
 interface ResourcePanelProps {
@@ -128,13 +134,25 @@ function groupIntoPairs(resources: RessourceStructuree[]): RessourcePaire[] {
   const pairs: RessourcePaire[] = []
   const seen = new Set<string>()
 
+  // Les variantes différenciées (derived_from renseigné) sont rattachées à leur
+  // paire source, pas traitées comme des ressources autonomes.
+  const variants = resources.filter(r => r.derived_from)
+  const variantsByBase = new Map<string, RessourceStructuree[]>()
+  for (const v of variants) {
+    seen.add(v.id)
+    const list = variantsByBase.get(v.derived_from!) ?? []
+    list.push(v)
+    variantsByBase.set(v.derived_from!, list)
+  }
+
   for (const r of resources) {
     if (seen.has(r.id)) continue
     if (r.audience === 'professeur') {
       seen.add(r.id)
       const eleve = r.paired_with ? resources.find(x => x.id === r.paired_with) : undefined
       if (eleve) seen.add(eleve.id)
-      pairs.push({ professeur: r, eleve })
+      const variantes = variantsByBase.get(r.id)
+      pairs.push({ professeur: r, eleve, variantes })
     }
   }
 
@@ -142,7 +160,7 @@ function groupIntoPairs(resources: RessourceStructuree[]): RessourcePaire[] {
   for (const r of resources) {
     if (!seen.has(r.id)) {
       seen.add(r.id)
-      pairs.push({ professeur: r })
+      pairs.push({ professeur: r, variantes: variantsByBase.get(r.id) })
     }
   }
 
@@ -153,8 +171,18 @@ function groupIntoPairs(resources: RessourceStructuree[]): RessourcePaire[] {
 
 export function printResource(resource: RessourceStructuree, audience: 'eleve' | 'professeur') {
   const typeLabel = TYPE_CONFIG[resource.type]?.label || resource.type
-  const suffix = audience === 'eleve' ? 'Élève' : 'Professeur'
+  // Profil de différenciation (variante élève) : adapte le suffixe + le rendu (police).
+  const profilUI = getProfilUI((resource.profil ?? 'standard') as DifferentiationProfil)
+  const baseSuffix = audience === 'eleve' ? 'Élève' : 'Professeur'
+  const suffix = profilUI ? `${baseSuffix} · ${profilUI.label}` : baseSuffix
   const badgeColor = audience === 'eleve' ? '#2563eb' : '#d97706'
+
+  // Rendu adapté (dys/allophone) : police, interlignage et espacements lisibles.
+  const render: ProfilRenderHints | undefined = profilUI?.render
+  const bodyFont = render ? render.fontFamily : "'Georgia', serif"
+  const bodyLineHeight = render ? render.lineHeight : 1.7
+  const bodyLetterSpacing = render?.letterSpacing ? `letter-spacing: ${render.letterSpacing};` : ''
+  const bodyWordSpacing = render?.wordSpacing ? `word-spacing: ${render.wordSpacing};` : ''
 
   const printWindow = window.open('', '_blank')
   if (!printWindow) return
@@ -165,7 +193,7 @@ export function printResource(resource: RessourceStructuree, audience: 'eleve' |
     <meta charset="utf-8" />
     <title>${typeLabel} — ${suffix}</title>
     <style>
-      body { font-family: 'Georgia', serif; max-width: 800px; margin: 0 auto; padding: 40px 48px; color: #1a1a1a; line-height: 1.7; }
+      body { font-family: ${bodyFont}; max-width: 800px; margin: 0 auto; padding: 40px 48px; color: #1a1a1a; line-height: ${bodyLineHeight}; ${bodyLetterSpacing} ${bodyWordSpacing} }
       .badge { display: inline-flex; align-items: center; gap: 6px; background: ${badgeColor}22; color: ${badgeColor}; border: 1px solid ${badgeColor}44; border-radius: 20px; padding: 3px 12px; font-size: 12px; font-family: sans-serif; font-weight: 600; margin-bottom: 24px; }
       h1, h2 { border-bottom: 1px solid #ddd; padding-bottom: 6px; }
       h1 { font-size: 22px; } h2 { font-size: 18px; margin-top: 28px; } h3 { font-size: 15px; margin-top: 18px; }
@@ -196,6 +224,12 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
   const [pairs, setPairs] = useState<RessourcePaire[]>([])
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
   const [activeAudience, setActiveAudience] = useState<'eleve' | 'professeur'>('eleve')
+  // Variante différenciée active (null = version élève standard ou prof selon l'audience).
+  const [activeVariantId, setActiveVariantId] = useState<string | null>(null)
+  // Profil en cours de génération (différenciation), pour l'état de chargement des chips.
+  const [generatingProfil, setGeneratingProfil] = useState<DifferentiationProfil | null>(null)
+  // Génération en série de toutes les variantes (« Tout différencier »).
+  const [variantsBatchRunning, setVariantsBatchRunning] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editedContent, setEditedContent] = useState('')
   // Brouillon des blocs (fiche_questions). null = ressource non structurée en blocs → mode Markdown.
@@ -239,6 +273,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
       setPairs([])
       setSelectedIdx(null)
       setActiveAudience('eleve')
+      setActiveVariantId(null)
       setIsEditing(false)
       setError(null)
       setTypeMenuOpen(false)
@@ -309,7 +344,10 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
   useEffect(() => {
     if (selectedIdx === null || !pairs[selectedIdx]) return
     const paire = pairs[selectedIdx]
-    const resource = activeAudience === 'eleve' && paire.eleve ? paire.eleve : paire.professeur
+    const variant = activeVariantId ? paire.variantes?.find(v => v.id === activeVariantId) : undefined
+    const resource = variant
+      ? variant
+      : (activeAudience === 'eleve' && paire.eleve ? paire.eleve : paire.professeur)
 
     if (resource.id !== currentResourceIdRef.current) {
       // Changement de ressource → réinitialiser proprement
@@ -328,7 +366,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
       setConfirmDelete(false)
     }
     // Si même ressource (ex : pairs mis à jour après save), on ne touche à rien
-  }, [selectedIdx, activeAudience, pairs])
+  }, [selectedIdx, activeAudience, activeVariantId, pairs])
 
   // ── Génération d'une ressource ─────────────────────────────────────────────
 
@@ -412,6 +450,99 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
     setBatchRunning(false)
   }, [pairs, suggestedTypes, generateOne])
 
+  // ── Génération d'une variante différenciée ────────────────────────────────
+  // Cœur réutilisable (un appel) : génère une variante, l'insère dans la paire,
+  // et retourne la ressource créée (ou null en cas d'échec).
+  const generateVariantCore = useCallback(async (
+    profil: Exclude<DifferentiationProfil, 'standard'>,
+  ): Promise<RessourceStructuree | null> => {
+    if (selectedIdx === null) return null
+    const paire = pairs[selectedIdx]
+    if (!paire?.eleve) return null // type sans version élève → pas de différenciation
+
+    setGeneratingProfil(profil)
+    setError(null)
+
+    try {
+      const res = await fetch('/api/generate/resource/variant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type:          paire.professeur.type,
+          profil,
+          baseContent:   paire.professeur.contenu_json,
+          baseProfId:    paire.professeur.id,
+          // Contexte (identique à la génération initiale)
+          sequenceTitle:    context.sequenceTitle,
+          niveau:           context.niveau,
+          theme:            context.theme,
+          seanceNumero:     context.seanceNumero,
+          seanceTitle:      context.seanceTitle,
+          activiteId:       context.activiteId,
+          activiteTitre:    context.activiteTitre,
+          activiteType:     context.activiteType,
+          activiteConsigne: context.activiteConsigne,
+          ressourceTitre:   DEFAULT_TITLES[paire.professeur.type] || paire.professeur.type,
+          corpus_refs:      activeCorpusRefs.length > 0 ? activeCorpusRefs : undefined,
+          corpus_ref:       activeCorpusRefs[0],
+          provider,
+          sequenceProblematique: context.sequenceProblematique,
+          sequenceObjectifs:     context.sequenceObjectifs,
+          sequenceCompetences:   context.sequenceCompetences,
+          seanceObjectifs:       context.seanceObjectifs,
+          activiteDuree:         context.activiteDuree,
+          progression:           context.progression,
+          autresActivites:       context.autresActivites,
+          consignes:             consignes.trim() || undefined,
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`)
+
+      const variante = data as RessourceStructuree
+      // Ajoute la variante à la paire courante (remplace si même profil déjà généré)
+      setPairs(prev => prev.map((p, idx) => {
+        if (idx !== selectedIdx) return p
+        const others = (p.variantes ?? []).filter(v => v.profil !== variante.profil)
+        return { ...p, variantes: [...others, variante] }
+      }))
+      return variante
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur lors de la génération de la variante')
+      return null
+    } finally {
+      setGeneratingProfil(null)
+    }
+  }, [selectedIdx, pairs, context, provider, consignes, activeCorpusRefs])
+
+  // Génère un seul profil, puis sélectionne la variante produite.
+  const handleGenerateVariant = useCallback(async (profil: Exclude<DifferentiationProfil, 'standard'>) => {
+    const variante = await generateVariantCore(profil)
+    if (variante) {
+      setActiveVariantId(variante.id)
+      setIsEditing(false)
+    }
+  }, [generateVariantCore])
+
+  // Génère en série toutes les variantes manquantes des profils actifs de la séquence.
+  const handleGenerateAllVariants = useCallback(async (
+    profils: Exclude<DifferentiationProfil, 'standard'>[],
+  ) => {
+    if (profils.length === 0) return
+    setVariantsBatchRunning(true)
+    let last: RessourceStructuree | null = null
+    for (const profil of profils) {
+      const v = await generateVariantCore(profil)
+      if (v) last = v
+    }
+    if (last) {
+      setActiveVariantId(last.id)
+      setIsEditing(false)
+    }
+    setVariantsBatchRunning(false)
+  }, [generateVariantCore])
+
   // ── Création d'une ressource vierge (composition manuelle, sans IA) ────────
   const handleCreateBlank = useCallback(async (type: RessourceType) => {
     setCreatingBlank(true)
@@ -454,8 +585,14 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
   const currentPaire = selectedIdx !== null ? pairs[selectedIdx] : null
   const hasEleve = Boolean(currentPaire?.eleve)
   const effectiveAudience = (!hasEleve && activeAudience === 'eleve') ? 'professeur' : activeAudience
+  // Variante différenciée active (si sélectionnée et toujours présente dans la paire).
+  const activeVariant = activeVariantId
+    ? currentPaire?.variantes?.find(v => v.id === activeVariantId) ?? null
+    : null
   const currentResource = currentPaire
-    ? (effectiveAudience === 'eleve' && currentPaire.eleve ? currentPaire.eleve : currentPaire.professeur)
+    ? (activeVariant
+        ? activeVariant
+        : (effectiveAudience === 'eleve' && currentPaire.eleve ? currentPaire.eleve : currentPaire.professeur))
     : null
   // Mode blocs actif si la ressource courante est d'un type « à blocs » structuré
   const blocUI = currentResource ? getBlocResourceUI(currentResource.type) : undefined
@@ -464,7 +601,13 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
     ? JSON.stringify(blocsDraft) !== savedBlocsRef.current
     : isEditing && currentResource !== null && editedContent !== currentResource.contenu_markdown
 
-  const isGeneratingAny = generatingType !== null || batchRunning || creatingBlank
+  const isGeneratingAny = generatingType !== null || batchRunning || creatingBlank || generatingProfil !== null || variantsBatchRunning
+  // Profils de différenciation proposés pour cette séquence (préférences « classe »).
+  const activeProfilUIList = resolveActiveProfils(context.activeProfils)
+  // Profils actifs pas encore générés pour la paire courante → cible du « Tout différencier ».
+  const pendingProfils = activeProfilUIList.filter(
+    p => !currentPaire?.variantes?.some(v => v.profil === p.id)
+  )
 
   // ── Sauvegarde du Markdown édité ──────────────────────────────────────────
 
@@ -544,6 +687,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
       // 3. Remplacer dans l'état local — le changement d'ID déclenchera le reset via currentResourceIdRef
       setPairs(prev => prev.map((p, idx) => idx === selectedIdx ? newPaire : p))
       setActiveAudience('eleve')
+      setActiveVariantId(null)
     } finally {
       setIsRegenerating(false)
     }
@@ -660,7 +804,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
                     return (
                       <button
                         key={paire.professeur.id}
-                        onClick={() => { setSelectedIdx(idx); setActiveAudience('eleve'); setIsEditing(false) }}
+                        onClick={() => { setSelectedIdx(idx); setActiveAudience('eleve'); setActiveVariantId(null); setIsEditing(false) }}
                         className={cn(
                           'flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-all',
                           isActive
@@ -896,12 +1040,12 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
                     {/* Toggle audience */}
                     <div className="flex rounded-lg overflow-hidden border border-gray-800 bg-gray-900/60 shrink-0">
                       <button
-                        onClick={() => { setActiveAudience('eleve'); setIsEditing(false) }}
+                        onClick={() => { setActiveAudience('eleve'); setActiveVariantId(null); setIsEditing(false) }}
                         disabled={!hasEleve}
                         title={!hasEleve ? "Ce type n'a pas de version élève" : undefined}
                         className={cn(
                           'flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors',
-                          effectiveAudience === 'eleve'
+                          !activeVariant && effectiveAudience === 'eleve'
                             ? 'bg-blue-600 text-white'
                             : 'text-gray-400 hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed',
                         )}
@@ -910,10 +1054,10 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
                         Élève
                       </button>
                       <button
-                        onClick={() => { setActiveAudience('professeur'); setIsEditing(false) }}
+                        onClick={() => { setActiveAudience('professeur'); setActiveVariantId(null); setIsEditing(false) }}
                         className={cn(
                           'flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors',
-                          effectiveAudience === 'professeur'
+                          !activeVariant && effectiveAudience === 'professeur'
                             ? 'bg-amber-600 text-white'
                             : 'text-gray-400 hover:text-gray-200',
                         )}
@@ -978,6 +1122,94 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
                     </div>
                   </div>
 
+                  {/* ── Différenciation : variantes élève adaptées ── */}
+                  {hasEleve && (
+                    <div className="px-4 py-2 border-b border-gray-800/50 shrink-0 flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500 font-semibold shrink-0">
+                        Différenciation
+                      </span>
+
+                      {/* Chip « Standard » (version élève de référence) */}
+                      <button
+                        onClick={() => { setActiveVariantId(null); setActiveAudience('eleve'); setIsEditing(false) }}
+                        className={cn(
+                          'flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-medium transition-all',
+                          !activeVariant && effectiveAudience === 'eleve'
+                            ? 'bg-blue-600 text-white border-transparent'
+                            : 'border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-200',
+                        )}
+                      >
+                        Standard
+                      </button>
+
+                      {/* Un chip par profil ACTIF (préférences classe) : sélection si la variante existe, sinon génération */}
+                      {activeProfilUIList.map(p => {
+                        const existing = currentPaire?.variantes?.find(v => v.profil === p.id)
+                        const isActive = activeVariant?.profil === p.id
+                        const isGen = generatingProfil === p.id
+                        return (
+                          <button
+                            key={p.id}
+                            onClick={() => existing
+                              ? (setActiveVariantId(existing.id), setIsEditing(false))
+                              : handleGenerateVariant(p.id)}
+                            disabled={isGeneratingAny && !isGen}
+                            title={existing ? `Voir la version ${p.label}` : `Générer la version ${p.label} — ${p.description}`}
+                            className={cn(
+                              'flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-medium transition-all disabled:opacity-40',
+                              isActive
+                                ? 'bg-indigo-600 text-white border-transparent shadow-sm'
+                                : existing
+                                  ? 'border-indigo-700/50 text-indigo-300 hover:bg-indigo-600/15'
+                                  : 'border-dashed border-gray-700 text-gray-500 hover:border-indigo-600/50 hover:text-indigo-300',
+                            )}
+                          >
+                            {isGen
+                              ? <Loader2 className="h-3 w-3 animate-spin" />
+                              : existing
+                                ? <CheckCircle2 className="h-3 w-3" />
+                                : <Plus className="h-3 w-3" />}
+                            <span>{p.emoji}</span>
+                            {p.label}
+                          </button>
+                        )
+                      })}
+
+                      {/* Tout différencier : génère en série les profils actifs manquants */}
+                      {pendingProfils.length > 1 && (
+                        <button
+                          onClick={() => handleGenerateAllVariants(pendingProfils.map(p => p.id))}
+                          disabled={isGeneratingAny}
+                          title="Générer toutes les variantes manquantes des profils de la classe"
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-600/10 border border-indigo-700/40 text-[11px] text-indigo-300 hover:bg-indigo-600/20 disabled:opacity-40 font-semibold transition-all"
+                        >
+                          {variantsBatchRunning
+                            ? <Loader2 className="h-3 w-3 animate-spin" />
+                            : <Sparkles className="h-3 w-3" />}
+                          {variantsBatchRunning ? 'Différenciation…' : `Tout différencier (${pendingProfils.length})`}
+                        </button>
+                      )}
+
+                      {activeProfilUIList.length === 0 && (
+                        <span className="text-[11px] text-gray-600 italic">
+                          Aucun profil activé pour cette séquence
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Bandeau variante active */}
+                  {activeVariant && (
+                    <div className="px-4 py-1.5 bg-indigo-950/20 border-b border-indigo-900/30 shrink-0">
+                      <p className="text-[11px] text-indigo-300/90">
+                        <span className="font-semibold">{getProfilUI(activeVariant.profil ?? 'standard')?.label}</span>
+                        {' — '}
+                        {getProfilUI(activeVariant.profil ?? 'standard')?.description}
+                        <span className="text-indigo-400/60"> · version élève adaptée</span>
+                      </p>
+                    </div>
+                  )}
+
                   {/* Zone de contenu */}
                   <div className="flex-1 overflow-y-auto p-5 scrollbar-thin">
                     {isBlocksMode && blocsDraft && blocUI ? (
@@ -1013,6 +1245,15 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
               <div className="flex gap-1.5 shrink-0">
                 {currentResource && (
                   <>
+                    {activeVariant && (
+                      <button
+                        onClick={() => printResource(activeVariant, 'eleve')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-800/50 text-xs text-indigo-300 hover:bg-indigo-500/10 transition-all font-medium"
+                      >
+                        <Printer className="h-3.5 w-3.5" />
+                        Imprimer {getProfilUI(activeVariant.profil ?? 'standard')?.label}
+                      </button>
+                    )}
                     {currentPaire?.eleve && (
                       <button
                         onClick={() => currentPaire.eleve && printResource(currentPaire.eleve, 'eleve')}
