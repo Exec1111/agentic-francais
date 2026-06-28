@@ -3,6 +3,7 @@
 import { Lightbulb, Sparkles, AlertTriangle, FileText, HelpCircle, CheckCircle2, ArrowRight } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import { type Bloc, type FicheQuestionsContenu, type EncadreVariante, isExerciseBloc } from '@/shared/resource-blocks'
+import { renderInline } from '../rich-text'
 
 /** Étiquette alphabétique d'un index : 0 → A, 1 → B, … */
 const letter = (i: number): string => String.fromCharCode(65 + i)
@@ -53,7 +54,7 @@ export function FicheBlocsRenderer({ contenu, audience }: Props) {
 
       {contenu.introduction && (
         <p className="text-sm text-gray-300 italic leading-relaxed bg-gray-900/40 border-l-2 border-gray-700 pl-3 py-2">
-          {contenu.introduction}
+          {renderInline(contenu.introduction)}
         </p>
       )}
 
@@ -75,7 +76,7 @@ function BlocView({ bloc, isPro, num }: { bloc: Bloc; isPro: boolean; num?: numb
       return (
         <p className="text-sm font-semibold text-gray-200 flex items-start gap-2">
           <span className="text-blue-400 shrink-0">▸</span>
-          {bloc.texte}
+          <span>{renderInline(bloc.texte)}</span>
         </p>
       )
 
@@ -88,10 +89,10 @@ function BlocView({ bloc, isPro, num }: { bloc: Bloc; isPro: boolean; num?: numb
           <div className="min-w-0">
             {bloc.encadre_titre && (
               <p className={cn('text-xs font-bold uppercase tracking-wide mb-1', style.iconCls)}>
-                {bloc.encadre_titre}
+                {renderInline(bloc.encadre_titre)}
               </p>
             )}
-            <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-line">{bloc.texte}</p>
+            <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-line">{renderInline(bloc.texte)}</p>
           </div>
         </div>
       )
@@ -150,7 +151,7 @@ function AideHint({ aide }: { aide: string | null }) {
   return (
     <span className="flex items-start gap-1.5 text-xs text-gray-500 mt-2 italic">
       <HelpCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-gray-600" />
-      Besoin d&apos;aide ? {aide}
+      Besoin d&apos;aide ? {renderInline(aide)}
     </span>
   )
 }
@@ -162,7 +163,7 @@ function QcmView({ bloc, isPro, num }: { bloc: Bloc; isPro: boolean; num?: numbe
   const good = new Set(bloc.bonnes_reponses ?? [])
   return (
     <ExerciseHeader num={num} bloc={bloc}>
-      {bloc.question}
+      {renderInline(bloc.question)}
       <span className="block mt-3 space-y-1.5 font-normal">
         {props.map((p, i) => {
           const letter = String.fromCharCode(65 + i)
@@ -181,14 +182,14 @@ function QcmView({ bloc, isPro, num }: { bloc: Bloc; isPro: boolean; num?: numbe
                 isGood ? 'border-green-500 text-green-300' : 'border-gray-600 text-gray-400')}>
                 {letter}
               </span>
-              {p}
+              {renderInline(p)}
               {isGood && <CheckCircle2 className="h-4 w-4 text-green-400 ml-auto shrink-0" />}
             </span>
           )
         })}
       </span>
       {isPro && bloc.explication && (
-        <span className="block mt-2 text-xs text-amber-300/80 italic font-normal">📌 {bloc.explication}</span>
+        <span className="block mt-2 text-xs text-amber-300/80 italic font-normal">📌 {renderInline(bloc.explication)}</span>
       )}
       <AideHint aide={!isPro ? bloc.aide : null} />
     </ExerciseHeader>
@@ -253,7 +254,7 @@ function AppariementView({ bloc, isPro, num }: { bloc: Bloc; isPro: boolean; num
 
   return (
     <ExerciseHeader num={num} bloc={bloc}>
-      {bloc.question ?? 'Relie chaque élément à sa bonne réponse.'}
+      {renderInline(bloc.question ?? 'Relie chaque élément à sa bonne réponse.')}
       <span className="block mt-3 grid grid-cols-[1fr,auto,1fr] gap-3 items-start font-normal">
         {/* Colonne A */}
         <span className="block space-y-1.5">
@@ -305,7 +306,7 @@ function RemiseEnOrdreView({ bloc, isPro, num }: { bloc: Bloc; isPro: boolean; n
 
   return (
     <ExerciseHeader num={num} bloc={bloc}>
-      {bloc.question ?? 'Remets les éléments dans le bon ordre.'}
+      {renderInline(bloc.question ?? 'Remets les éléments dans le bon ordre.')}
       <span className="block mt-3 space-y-1.5 font-normal">
         {elems.map((e, i) => {
           const rang = isPro ? rangDe(i) : null
@@ -355,7 +356,7 @@ function ClassementView({ bloc, isPro, num }: { bloc: Bloc; isPro: boolean; num?
 
   return (
     <ExerciseHeader num={num} bloc={bloc}>
-      {bloc.question ?? 'Classe les éléments dans la bonne catégorie.'}
+      {renderInline(bloc.question ?? 'Classe les éléments dans la bonne catégorie.')}
       {/* Étiquettes à classer (visibles surtout pour l'élève) */}
       {items.length > 0 && (
         <span className="block mt-3 flex flex-wrap gap-1.5 font-normal">
@@ -401,11 +402,11 @@ function QuestionOuverteView({ bloc, isPro, num }: { bloc: Bloc; isPro: boolean;
   const n = bloc.lignes_reponse ?? 4
   return (
     <ExerciseHeader num={num} bloc={bloc}>
-      {bloc.enonce}
+      {renderInline(bloc.enonce)}
       {isPro && bloc.reponse_attendue ? (
         <span className="block mt-2 text-sm bg-green-500/10 border border-green-600/30 rounded-lg px-3 py-2 text-green-200 font-normal">
           <span className="font-semibold">Réponse attendue : </span>
-          {bloc.reponse_attendue}
+          {renderInline(bloc.reponse_attendue)}
         </span>
       ) : (
         <span className="block mt-3 space-y-2 font-normal">
