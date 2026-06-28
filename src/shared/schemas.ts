@@ -139,6 +139,32 @@ export const DifferentiationProfilSchema = z.enum([
   'allophone',
 ])
 
+// === Enseignement explicite ===
+// Mode pédagogique d'une séance.
+//  - 'explicite' : séance structurée selon le canevas en 5 phases de l'enseignement
+//    explicite (ouverture → modelage → pratique guidée → pratique autonome → clôture).
+//    Recommandé pour l'acquisition de notions NOUVELLES (élèves novices).
+//  - 'standard'  : séance générée librement (réinvestissement, projet, débat…).
+// Voir doc/enseignement-explicite.md.
+export const ModePedagogiqueSchema = z.enum(['explicite', 'standard'])
+
+// Les cinq phases d'une séance en enseignement explicite (Archer & Hughes, CSEN 2022).
+export const PhasePedagogiqueSchema = z.enum([
+  'ouverture',          // annonce des objectifs, réactivation des acquis
+  'modelage',           // « Je fais » : démonstration, worked examples
+  'pratique_guidee',    // « Nous faisons » : pratique collective + feed-back
+  'pratique_autonome',  // « Vous faites seuls » : entraînement individuel
+  'cloture',            // synthèse + réinvestissement / devoirs
+])
+
+// Recommandation du conseiller pédagogique pour une séance : l'IA juge si la séance
+// se prête à l'enseignement explicite et en donne la raison (1 ligne). L'enseignant
+// reste décisionnaire (cf. effet de renversement dû à l'expertise — CSEN 2022).
+export const PedagogieRecoSchema = z.object({
+  recommande: z.boolean(),
+  justification: z.string(),
+})
+
 // Ressource structurée (nouveau système — stockée dans la table `ressources`)
 export const RessourceStructureeSchema = z.object({
   id: z.string(),
@@ -194,6 +220,8 @@ export const ActiviteSchema = z.object({
   consigne: z.string(),
   supports: z.array(z.string()).optional(),
   differenciation: z.string().optional(),
+  /** Phase du canevas d'enseignement explicite. Présent uniquement si la séance est en mode 'explicite'. */
+  phase: PhasePedagogiqueSchema.optional(),
   ressources: z.array(RessourceSchema).optional().default([]),
   /** @deprecated Utiliser corpus_refs — conservé pour la rétrocompatibilité à la lecture. */
   corpus_ref: z.string().optional(),
@@ -211,6 +239,10 @@ export const SeanceSchema = z.object({
   objectifs: z.array(z.string()),
   activites: z.array(ActiviteSchema),
   evaluation: z.string().optional(),
+  /** Mode pédagogique retenu pour la séance (choix de l'enseignant via le gate). */
+  mode_pedagogique: ModePedagogiqueSchema.optional(),
+  /** Recommandation du conseiller pédagogique (l'IA propose, l'enseignant tranche). */
+  pedagogie_reco: PedagogieRecoSchema.optional(),
   ressources: z.array(RessourceSchema).optional().default([]),
 })
 
@@ -317,13 +349,19 @@ export const GeneratorSeanceOutputSchema = z.object({
     consigne: z.string(),
     supports: z.array(z.string()),
     differenciation: z.string().nullable(),
+    // Phase du canevas explicite — null pour une séance en mode 'standard'.
+    // nullable (et non optional) : exigé par les Structured Outputs OpenAI.
+    phase: PhasePedagogiqueSchema.nullable(),
   })).min(1),
 })
 
-export const ReactDecisionSchema = z.object({
-  thought: z.string(),
-  action: z.enum(['analyser_demande', 'construire_sequence', 'generer_activites', 'verifier_qualite', 'ameliorer', 'terminer']),
-  action_input: z.string(),
+// Sortie du conseiller pédagogique : une recommandation par séance, ciblée par numéro.
+export const PedagogyAdvisorOutputSchema = z.object({
+  seances: z.array(z.object({
+    numero: z.coerce.number(),
+    recommande: z.boolean(),
+    justification: z.string(),
+  })).min(1),
 })
 
 // === Types inférés ===
@@ -332,6 +370,10 @@ export type Ressource = z.infer<typeof RessourceSchema>
 export type RessourceType = z.infer<typeof RessourceTypeSchema>
 export type RessourceAudience = z.infer<typeof RessourceAudienceSchema>
 export type DifferentiationProfil = z.infer<typeof DifferentiationProfilSchema>
+export type ModePedagogique = z.infer<typeof ModePedagogiqueSchema>
+export type PhasePedagogique = z.infer<typeof PhasePedagogiqueSchema>
+export type PedagogieReco = z.infer<typeof PedagogieRecoSchema>
+export type PedagogyAdvisorOutput = z.infer<typeof PedagogyAdvisorOutputSchema>
 export type RessourceStructuree = z.infer<typeof RessourceStructureeSchema>
 export type RessourcePaire = z.infer<typeof RessourcePaireSchema>
 export type ExerciceFormat = z.infer<typeof ExerciceFormatSchema>
@@ -344,12 +386,11 @@ export type ActionableSuggestion = z.infer<typeof ActionableSuggestionSchema>
 export type Probleme = z.infer<typeof ProblemeSchema>
 export type OrchestratorOutput = z.infer<typeof OrchestratorOutputSchema>
 export type ArchitectOutput = z.infer<typeof ArchitectOutputSchema>
-export type ReactDecision = z.infer<typeof ReactDecisionSchema>
 
 // === Schémas du workflow ===
 
 export const AgentStepSchema = z.object({
-  agent: z.enum(['orchestrateur', 'architecte', 'generateur', 'reviewer']),
+  agent: z.enum(['orchestrateur', 'architecte', 'conseiller', 'generateur', 'reviewer']),
   status: z.enum(['idle', 'running', 'done', 'error']),
   startedAt: z.string().optional(),
   completedAt: z.string().optional(),
@@ -363,7 +404,7 @@ export const WorkflowStateSchema = z.object({
   id: z.string(),
   demande: z.string(),
   status: z.enum(['idle', 'running', 'completed', 'error']),
-  currentAgent: z.enum(['orchestrateur', 'architecte', 'generateur', 'reviewer']).nullable(),
+  currentAgent: z.enum(['orchestrateur', 'architecte', 'conseiller', 'generateur', 'reviewer']).nullable(),
   steps: z.array(AgentStepSchema),
   sequence: SequenceSchema.nullable(),
   review: ReviewSchema.nullable(),
@@ -373,4 +414,4 @@ export const WorkflowStateSchema = z.object({
 
 export type AgentStep = z.infer<typeof AgentStepSchema>
 export type WorkflowState = z.infer<typeof WorkflowStateSchema>
-export type AgentName = 'orchestrateur' | 'architecte' | 'generateur' | 'reviewer'
+export type AgentName = 'orchestrateur' | 'architecte' | 'conseiller' | 'generateur' | 'reviewer'

@@ -237,6 +237,20 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE sequences ADD COLUMN differentiation_profils TEXT;
     `,
   },
+  {
+    version: 11,
+    name: 'enseignement_explicite',
+    sql: `
+      -- Mode pédagogique par séance (enseignement explicite vs standard) et
+      -- recommandation du conseiller (JSON { recommande, justification }).
+      -- NULL = séance standard (comportement historique).
+      ALTER TABLE seances ADD COLUMN mode_pedagogique TEXT;
+      ALTER TABLE seances ADD COLUMN pedagogie_reco   TEXT;
+
+      -- Phase du canevas explicite portée par chaque activité (NULL hors mode explicite).
+      ALTER TABLE activites ADD COLUMN phase TEXT;
+    `,
+  },
 ]
 
 function runMigrations(db: Database.Database) {

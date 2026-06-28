@@ -14,11 +14,28 @@ import { PipelinePanel } from '@/frontend/components/PipelinePanel'
 import { SavedSequences } from '@/frontend/components/SavedSequences'
 import { GenerateModal } from '@/frontend/components/GenerateModal'
 import { CorpusManager } from '@/frontend/components/CorpusManager'
+import { PedagogyGate, type SeancePedagogieChoice } from '@/frontend/components/PedagogyGate'
 import { useSequenceEditor } from '@/frontend/hooks/useSequenceEditor'
 import { useSequenceStore } from '@/frontend/hooks/useSequenceStore'
 import type { CorpusSuggestResponse } from '@/app/api/corpus/suggest/route'
+import type { ArchitectOutput, PedagogyAdvisorOutput } from '@/shared/schemas'
 
-type AgentName = 'orchestrateur' | 'architecte' | 'generateur' | 'reviewer'
+type AgentName = 'orchestrateur' | 'architecte' | 'conseiller' | 'generateur' | 'reviewer'
+
+/** Structure produite par la phase 1, en attente du choix pédagogique de l'enseignant. */
+interface PendingStructure {
+  workflowId: string
+  architecture: ArchitectOutput
+  recommendations: PedagogyAdvisorOutput
+}
+
+const INITIAL_AGENTS: { name: AgentName; status: 'idle'; logs: string[] }[] = [
+  { name: 'orchestrateur', status: 'idle', logs: [] },
+  { name: 'architecte', status: 'idle', logs: [] },
+  { name: 'conseiller', status: 'idle', logs: [] },
+  { name: 'generateur', status: 'idle', logs: [] },
+  { name: 'reviewer', status: 'idle', logs: [] },
+]
 type AgentStatus = 'idle' | 'running' | 'done' | 'error'
 
 interface AgentState {
@@ -27,7 +44,7 @@ interface AgentState {
   logs: string[]
 }
 
-type GenerationStep = 'idle' | 'suggesting' | 'corpus_selection' | 'generating' | 'done'
+type GenerationStep = 'idle' | 'suggesting' | 'corpus_selection' | 'generating' | 'pedagogy_gate' | 'done'
 
 export default function HomePage() {
   const [demande, setDemande] = useState('')
@@ -36,12 +53,10 @@ export default function HomePage() {
   const [generationStep, setGenerationStep] = useState<GenerationStep>('idle')
   const [corpusSuggest, setCorpusSuggest] = useState<CorpusSuggestResponse | null>(null)
   const [isRunning, setIsRunning] = useState(false)
-  const [agents, setAgents] = useState<AgentState[]>([
-    { name: 'orchestrateur', status: 'idle', logs: [] },
-    { name: 'architecte', status: 'idle', logs: [] },
-    { name: 'generateur', status: 'idle', logs: [] },
-    { name: 'reviewer', status: 'idle', logs: [] },
-  ])
+  const [agents, setAgents] = useState<AgentState[]>(INITIAL_AGENTS)
+  // Structure en attente de validation pédagogique (gate) + refs corpus pour la phase 2.
+  const [pendingStructure, setPendingStructure] = useState<PendingStructure | null>(null)
+  const [corpusRefs, setCorpusRefs] = useState<string[]>([])
   const [reactSteps, setReactSteps] = useState<ReactStepData[]>([])
   const [progress, setProgress] = useState<WorkflowProgress | null>(null)
   const editor = useSequenceEditor()
@@ -71,154 +86,182 @@ export default function HomePage() {
   }, [editor])
 
   const resetState = useCallback(() => {
-    setAgents([
-      { name: 'orchestrateur', status: 'idle', logs: [] },
-      { name: 'architecte', status: 'idle', logs: [] },
-      { name: 'generateur', status: 'idle', logs: [] },
-      { name: 'reviewer', status: 'idle', logs: [] },
-    ])
+    setAgents(INITIAL_AGENTS)
     setReactSteps([])
     setReview(null)
     setError(null)
     setGenerationStep('idle')
     setCorpusSuggest(null)
     setProgress(null)
+    setPendingStructure(null)
   }, [])
 
-  // Appelé depuis la modale : lance le workflow avec la demande + refs corpus choisies
-  const handleGenerate = useCallback(async (texte: string, corpusRefs: string[]) => {
+  // Applique un événement du flux SSE à l'état de l'UI (commun aux deux phases).
+  const handleEvent = useCallback((data: any) => {
+    switch (data.type) {
+      case 'workflow_start':
+        setProgress({ percent: 5, label: 'Démarrage du workflow…' })
+        break
+
+      case 'react_thought':
+        setReactSteps(prev => {
+          const existing = prev.find(s => s.step === data.step)
+          if (existing) {
+            return prev.map(s => s.step === data.step ? { ...s, thought: data.thought, status: 'thinking' } : s)
+          }
+          return [...prev, { step: data.step, thought: data.thought, status: 'thinking' }]
+        })
+        break
+
+      case 'react_action': {
+        setReactSteps(prev => prev.map(s =>
+          s.step === data.step ? { ...s, action: data.action, actionInput: data.input, status: 'acting' } : s
+        ))
+        const ACTION_PROGRESS: Record<string, WorkflowProgress> = {
+          analyser_demande:     { percent: 10, label: 'Analyse de la demande…' },
+          construire_sequence:  { percent: 28, label: 'Construction de la séquence…' },
+          conseiller_pedagogie: { percent: 42, label: 'Analyse pédagogique…' },
+          generer_activites:    { percent: 62, label: 'Génération des activités…' },
+          verifier_qualite:     { percent: 85, label: 'Vérification qualité…' },
+          terminer:             { percent: 96, label: 'Finalisation…' },
+        }
+        if (ACTION_PROGRESS[data.action]) setProgress(ACTION_PROGRESS[data.action])
+        break
+      }
+
+      case 'react_observation':
+        setReactSteps(prev => prev.map(s =>
+          s.step === data.step ? { ...s, observation: data.observation, status: 'done' } : s
+        ))
+        break
+
+      case 'agent_start':
+        setAgents(prev => prev.map(a => a.name === data.agent ? { ...a, status: 'running' } : a))
+        break
+
+      case 'agent_log':
+        setAgents(prev => prev.map(a => a.name === data.agent ? { ...a, logs: [...a.logs, data.message] } : a))
+        break
+
+      case 'agent_done': {
+        setAgents(prev => prev.map(a => a.name === data.agent ? { ...a, status: 'done' } : a))
+        const AGENT_PROGRESS: Record<string, WorkflowProgress> = {
+          orchestrateur: { percent: 22, label: 'Paramètres extraits' },
+          architecte:    { percent: 38, label: 'Structure définie' },
+          conseiller:    { percent: 48, label: 'Analyse pédagogique prête' },
+          generateur:    { percent: 80, label: 'Activités générées' },
+          reviewer:      { percent: 94, label: 'Révision terminée' },
+        }
+        if (AGENT_PROGRESS[data.agent]) setProgress(AGENT_PROGRESS[data.agent])
+        break
+      }
+
+      case 'agent_error':
+        setAgents(prev => prev.map(a =>
+          a.name === data.agent ? { ...a, status: 'error', logs: [...a.logs, `❌ ${data.error}`] } : a
+        ))
+        break
+
+      // Gate : la structure est prête, on attend le choix pédagogique de l'enseignant.
+      case 'awaiting_pedagogy':
+        setPendingStructure({
+          workflowId: data.workflowId,
+          architecture: data.architecture,
+          recommendations: data.recommendations,
+        })
+        setGenerationStep('pedagogy_gate')
+        setProgress({ percent: 50, label: 'En attente de votre choix pédagogique…' })
+        setIsRunning(false)
+        break
+
+      case 'workflow_done':
+        if (data.sequence) editor.setSequence(data.sequence)
+        setReview(data.review)
+        setGenerationStep('done')
+        setPendingStructure(null)
+        setProgress({ percent: 100, label: 'Séquence prête !' })
+        break
+
+      case 'workflow_error':
+        setError(data.error)
+        break
+    }
+  }, [editor])
+
+  // Lit un flux SSE jusqu'à sa fin en appliquant chaque événement.
+  const consumeStream = useCallback(async (response: Response) => {
+    if (!response.ok) throw new Error(`Erreur HTTP: ${response.status}`)
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('Pas de stream disponible')
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        handleEvent(JSON.parse(line.slice(6)))
+      }
+    }
+  }, [handleEvent])
+
+  // Phase 1 (depuis la modale) : structure la séquence, puis ouvre le gate pédagogique.
+  const handleGenerate = useCallback(async (texte: string, refs: string[]) => {
     setDemande(texte)
+    setCorpusRefs(refs)
     setGenerationStep('generating')
     setIsRunning(true)
     setError(null)
     setShowPipeline(true)
     setShowModal(false)
-
     abortRef.current = new AbortController()
-
     try {
-      const response = await fetch('/api/generate', {
+      const response = await fetch('/api/generate/structure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ demande: texte, provider, corpus_refs: corpusRefs }),
+        body: JSON.stringify({ demande: texte, provider, corpus_refs: refs }),
         signal: abortRef.current.signal,
       })
-
-      if (!response.ok) {
-        throw new Error(`Erreur HTTP: ${response.status}`)
-      }
-
-      const reader = response.body?.getReader()
-      if (!reader) throw new Error('Pas de stream disponible')
-
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          const data = JSON.parse(line.slice(6))
-
-          switch (data.type) {
-            // === Progression ===
-            case 'workflow_start':
-              setProgress({ percent: 5, label: 'Démarrage du workflow…' })
-              break
-
-            // === Événements ReAct ===
-            case 'react_thought':
-              setReactSteps(prev => {
-                const existing = prev.find(s => s.step === data.step)
-                if (existing) {
-                  return prev.map(s => s.step === data.step ? { ...s, thought: data.thought, status: 'thinking' } : s)
-                }
-                return [...prev, { step: data.step, thought: data.thought, status: 'thinking' }]
-              })
-              break
-
-            case 'react_action': {
-              setReactSteps(prev => prev.map(s =>
-                s.step === data.step ? { ...s, action: data.action, actionInput: data.input, status: 'acting' } : s
-              ))
-              const ACTION_PROGRESS: Record<string, WorkflowProgress> = {
-                analyser_demande:    { percent: 10, label: 'Analyse de la demande…' },
-                construire_sequence: { percent: 30, label: 'Construction de la séquence…' },
-                generer_activites:   { percent: 55, label: 'Génération des activités…' },
-                verifier_qualite:    { percent: 78, label: 'Vérification qualité…' },
-                ameliorer:           { percent: 65, label: 'Amélioration en cours…' },
-                terminer:            { percent: 96, label: 'Finalisation…' },
-              }
-              if (ACTION_PROGRESS[data.action]) setProgress(ACTION_PROGRESS[data.action])
-              break
-            }
-
-            case 'react_observation':
-              setReactSteps(prev => prev.map(s =>
-                s.step === data.step ? { ...s, observation: data.observation, status: 'done' } : s
-              ))
-              break
-
-            // === Événements agents ===
-            case 'agent_start':
-              setAgents(prev => prev.map(a =>
-                a.name === data.agent ? { ...a, status: 'running' } : a
-              ))
-              break
-
-            case 'agent_log':
-              setAgents(prev => prev.map(a =>
-                a.name === data.agent ? { ...a, logs: [...a.logs, data.message] } : a
-              ))
-              break
-
-            case 'agent_done': {
-              setAgents(prev => prev.map(a =>
-                a.name === data.agent ? { ...a, status: 'done' } : a
-              ))
-              const AGENT_PROGRESS: Record<string, WorkflowProgress> = {
-                orchestrateur: { percent: 25, label: 'Paramètres extraits' },
-                architecte:    { percent: 52, label: 'Structure définie' },
-                generateur:    { percent: 77, label: 'Activités générées' },
-                reviewer:      { percent: 92, label: 'Révision terminée' },
-              }
-              if (AGENT_PROGRESS[data.agent]) setProgress(AGENT_PROGRESS[data.agent])
-              break
-            }
-
-            case 'agent_error':
-              setAgents(prev => prev.map(a =>
-                a.name === data.agent ? { ...a, status: 'error', logs: [...a.logs, `❌ ${data.error}`] } : a
-              ))
-              break
-
-            case 'workflow_done':
-              if (data.sequence) editor.setSequence(data.sequence)
-              setReview(data.review)
-              setGenerationStep('done')
-              setProgress({ percent: 100, label: 'Séquence prête !' })
-              break
-
-            case 'workflow_error':
-              setError(data.error)
-              break
-          }
-        }
-      }
+      await consumeStream(response)
     } catch (err) {
-      if (err instanceof Error && err.name !== 'AbortError') {
-        setError(err.message)
-      }
+      if (err instanceof Error && err.name !== 'AbortError') setError(err.message)
     } finally {
       setIsRunning(false)
     }
-  }, [demande, provider])
+  }, [provider, consumeStream])
+
+  // Phase 2 : l'enseignant a validé les modes → génération des activités.
+  const handleConfirmPedagogy = useCallback(async (choices: SeancePedagogieChoice[]) => {
+    if (!pendingStructure) return
+    setGenerationStep('generating')
+    setIsRunning(true)
+    setError(null)
+    setShowPipeline(true)
+    abortRef.current = new AbortController()
+    try {
+      const response = await fetch('/api/generate/activities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workflow_id: pendingStructure.workflowId,
+          architecture: pendingStructure.architecture,
+          pedagogie: choices,
+          provider,
+          corpus_refs: corpusRefs,
+        }),
+        signal: abortRef.current.signal,
+      })
+      await consumeStream(response)
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'AbortError') setError(err.message)
+    } finally {
+      setIsRunning(false)
+    }
+  }, [pendingStructure, provider, corpusRefs, consumeStream])
 
   const handleSave = useCallback(async () => {
     if (!editor.sequence) return
@@ -453,6 +496,24 @@ export default function HomePage() {
               )}
             </AnimatePresence>
 
+            {/* Gate : validation pédagogique (enseignement explicite) */}
+            <AnimatePresence>
+              {generationStep === 'pedagogy_gate' && pendingStructure && !editor.sequence && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                >
+                  <PedagogyGate
+                    architecture={pendingStructure.architecture}
+                    recommendations={pendingStructure.recommendations}
+                    onConfirm={handleConfirmPedagogy}
+                    onCancel={resetState}
+                    loading={isRunning}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* État : génération en cours */}
             {isRunning && !editor.sequence && (
               <motion.div
@@ -472,7 +533,7 @@ export default function HomePage() {
             )}
 
             {/* État initial */}
-            {!isRunning && !editor.sequence && (
+            {!isRunning && !editor.sequence && generationStep !== 'pedagogy_gate' && (
               <div className="text-center py-20">
                 <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-900 border border-gray-800 mb-4">
                   <Sparkles className="h-8 w-8 text-gray-600" />

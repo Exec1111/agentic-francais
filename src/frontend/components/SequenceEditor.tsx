@@ -47,6 +47,15 @@ const TYPE_COLORS: Record<string, string> = {
   recherche: 'bg-yellow-900/30 text-yellow-300 border-yellow-700/50',
 }
 
+// Phases du canevas d'enseignement explicite — libellé court + style du badge.
+const PHASE_CONFIG: Record<string, { label: string; cls: string }> = {
+  ouverture:         { label: '1 · Ouverture',        cls: 'bg-sky-900/30 text-sky-300 border-sky-700/50' },
+  modelage:          { label: '2 · Modelage',         cls: 'bg-indigo-900/30 text-indigo-300 border-indigo-700/50' },
+  pratique_guidee:   { label: '3 · Pratique guidée',  cls: 'bg-violet-900/30 text-violet-300 border-violet-700/50' },
+  pratique_autonome: { label: '4 · Pratique autonome',cls: 'bg-fuchsia-900/30 text-fuchsia-300 border-fuchsia-700/50' },
+  cloture:           { label: '5 · Clôture',          cls: 'bg-teal-900/30 text-teal-300 border-teal-700/50' },
+}
+
 const ACTIVITY_TYPES = [
   'exercice', 'production_ecrite', 'debat', 'lecture',
   'oral', 'evaluation', 'collaboration', 'recherche',
@@ -678,7 +687,7 @@ function SeanceBlock({
           {seance.numero}
         </span>
 
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 flex items-center gap-2">
           <span className="inline-block max-w-full" onClick={(e) => e.stopPropagation()}>
             <EditableText
               value={seance.titre}
@@ -686,6 +695,15 @@ function SeanceBlock({
               className="font-medium text-gray-200"
             />
           </span>
+          {seance.mode_pedagogique === 'explicite' && (
+            <span
+              className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-primary-700/50 bg-primary-900/30 text-primary-300 text-[10px] font-semibold"
+              title="Séance structurée en enseignement explicite (5 phases)"
+            >
+              <GraduationCap className="h-3 w-3" />
+              Explicite
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -930,6 +948,14 @@ function ActiviteBlock({
               className="text-sm font-medium"
             />
           </span>
+          {activite.phase && PHASE_CONFIG[activite.phase] && (
+            <span
+              className={cn('shrink-0 px-1.5 py-0.5 rounded border text-[10px] font-semibold', PHASE_CONFIG[activite.phase].cls)}
+              title="Phase du canevas d'enseignement explicite"
+            >
+              {PHASE_CONFIG[activite.phase].label}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2 text-xs opacity-70 shrink-0">
           <select

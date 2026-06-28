@@ -1,6 +1,6 @@
 import { LLMProvider, LLMMessage } from '../llm-provider'
 import { validateLLMOutput } from '../validation'
-import { ArchitectOutput, GeneratorSeanceOutputSchema, Activite, CorpusItem } from '@/shared/schemas'
+import { ArchitectOutput, GeneratorSeanceOutputSchema, Activite, CorpusItem, ModePedagogique } from '@/shared/schemas'
 import { SYSTEM_PROMPT, buildCorpusBlock, buildSeanceUserPrompt } from '../prompts/generator'
 
 export interface GeneratorOutput {
@@ -15,7 +15,9 @@ export async function runGenerator(
   llm: LLMProvider,
   architecture: ArchitectOutput,
   onLog: (msg: string) => void,
-  corpusItems: CorpusItem[] = []
+  corpusItems: CorpusItem[] = [],
+  /** Mode pédagogique retenu par séance (numéro → mode). Défaut : 'standard'. */
+  modes: Map<number, ModePedagogique> = new Map()
 ): Promise<GeneratorOutput> {
   onLog(`Génération des activités pour ${architecture.seances.length} séances...`)
 
@@ -23,9 +25,10 @@ export async function runGenerator(
   const results: GeneratorOutput = { seances: [] }
 
   for (const seance of architecture.seances) {
-    onLog(`  → Séance ${seance.numero}: "${seance.titre}"...`)
+    const mode = modes.get(seance.numero) ?? 'standard'
+    onLog(`  → Séance ${seance.numero}: "${seance.titre}"${mode === 'explicite' ? ' [explicite]' : ''}...`)
 
-    const userPrompt = buildSeanceUserPrompt(architecture, seance, corpusBlock)
+    const userPrompt = buildSeanceUserPrompt(architecture, seance, corpusBlock, mode)
 
     const messages: LLMMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
@@ -52,6 +55,8 @@ export async function runGenerator(
       activites: parsed.activites.map((a) => ({
         ...a,
         differenciation: a.differenciation ?? undefined,
+        // En mode standard, on ignore toute phase éventuelle renvoyée par le modèle.
+        phase: mode === 'explicite' ? (a.phase ?? undefined) : undefined,
         ressources: [],
         corpus_refs: [],
       })),

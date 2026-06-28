@@ -3,13 +3,14 @@
  * Rôle : créer les activités pédagogiques détaillées pour chaque séance.
  */
 
-import type { CorpusItem } from '@/shared/schemas'
+import type { CorpusItem, ModePedagogique } from '@/shared/schemas'
 
 export const SYSTEM_PROMPT = `Tu es l'Agent Générateur d'Activités d'une plateforme de conception de cours de français.
 
 TON RÔLE : Créer les activités pédagogiques détaillées pour UNE séance donnée.
 
 Pour chaque séance, tu dois produire 2 activités variées et adaptées au niveau.
+Renseigne le champ "phase" à null, SAUF instruction contraire (mode enseignement explicite).
 
 Types d'activités possibles :
 - exercice : travail individuel sur une notion
@@ -72,11 +73,42 @@ ${corpusItems.map((item) =>
 `
 }
 
+/**
+ * Bloc de consignes ajouté quand la séance est en mode ENSEIGNEMENT EXPLICITE.
+ * Structure la séance selon le canevas en 5 phases (Archer & Hughes / CSEN 2022)
+ * et impose les garde-fous associés. Chaque activité doit porter sa "phase".
+ */
+export const EXPLICIT_CANVAS_BLOCK = `
+━━━ MODE ENSEIGNEMENT EXPLICITE — CANEVAS EN 5 PHASES ━━━
+Cette séance vise l'acquisition d'une notion NOUVELLE. Structure-la du simple au
+complexe en produisant UNE activité par phase (4 à 5 activités), chacune avec son
+champ "phase" renseigné, dans cet ordre :
+
+1. "ouverture" — Annoncer l'objectif en mots d'élève et réactiver les acquis utiles
+   par un questionnement actif (pas un simple « vous vous souvenez ? »). Court.
+2. "modelage" — « JE FAIS » : l'enseignant démontre la notion à voix haute, avec un
+   exemple résolu (worked example) et un contre-exemple. La consigne décrit ce que
+   l'enseignant montre.
+3. "pratique_guidee" — « NOUS FAISONS ENSEMBLE » : les élèves s'exercent collectivement
+   avec étayage fort ; prévois une vérification active de la compréhension (faire
+   reformuler, justifier) et des feed-back. Du simple au complexe.
+4. "pratique_autonome" — « VOUS FAITES SEULS » : entraînement individuel pour
+   automatiser, lancé une fois la notion comprise. Dose suffisante d'exercices.
+5. "cloture" — Synthèse de ce qu'il faut retenir (avec les élèves) + réinvestissement
+   bref ; si devoirs, ils réinvestissent ce qui a été maîtrisé en classe.
+
+RÈGLES :
+- Renseigne OBLIGATOIREMENT "phase" pour chaque activité (une des 5 valeurs ci-dessus).
+- Respecte l'ordre des phases. La somme des durées ≤ durée de la séance.
+- Garde un rythme soutenu : modelage concis, maximum de temps pour la pratique.`
+
 export function buildSeanceUserPrompt(
   architecture: { titre_sequence: string; niveau: string; theme: string; objectifs: string[] },
   seance: { numero: number; titre: string; duree: number; objectifs: string[] },
   corpusBlock: string,
+  mode: ModePedagogique = 'standard',
 ): string {
+  const explicitBlock = mode === 'explicite' ? `\n${EXPLICIT_CANVAS_BLOCK}` : ''
   return `Génère les activités pour cette séance :
 - Séquence : "${architecture.titre_sequence}"
 - Niveau : ${architecture.niveau}
@@ -84,5 +116,5 @@ export function buildSeanceUserPrompt(
 - Séance n°${seance.numero} : "${seance.titre}"
 - Durée : ${seance.duree} minutes
 - Objectifs de la séance : ${seance.objectifs.join(', ')}
-- Objectifs globaux de la séquence : ${architecture.objectifs.join(', ')}${corpusBlock}`
+- Objectifs globaux de la séquence : ${architecture.objectifs.join(', ')}${corpusBlock}${explicitBlock}`
 }

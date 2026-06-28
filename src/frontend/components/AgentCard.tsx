@@ -1,11 +1,11 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { Bot, Brain, Pencil, ShieldCheck, Loader2 } from 'lucide-react'
+import { Bot, Brain, GraduationCap, Pencil, ShieldCheck, Loader2 } from 'lucide-react'
 import { cn } from '@/shared/utils'
 
 type AgentStatus = 'idle' | 'running' | 'done' | 'error'
-type AgentName = 'orchestrateur' | 'architecte' | 'generateur' | 'reviewer'
+type AgentName = 'orchestrateur' | 'architecte' | 'conseiller' | 'generateur' | 'reviewer'
 
 interface AgentCardProps {
   name: AgentName
@@ -39,6 +39,15 @@ const AGENT_CONFIG: Record<AgentName, {
     bgColor: 'bg-blue-950/50',
     borderColor: 'border-blue-500/30',
     glowColor: 'shadow-blue-500/20',
+  },
+  conseiller: {
+    label: 'Conseiller Pédagogique',
+    description: 'Recommande l\'enseignement explicite par séance',
+    icon: GraduationCap,
+    color: 'text-primary-400',
+    bgColor: 'bg-primary-950/50',
+    borderColor: 'border-primary-500/30',
+    glowColor: 'shadow-primary-500/20',
   },
   generateur: {
     label: 'Générateur d\'Activités',

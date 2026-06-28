@@ -5,7 +5,7 @@ import { AgentCard } from './AgentCard'
 import { ArrowDown } from 'lucide-react'
 import { cn } from '@/shared/utils'
 
-type AgentName = 'orchestrateur' | 'architecte' | 'generateur' | 'reviewer'
+type AgentName = 'orchestrateur' | 'architecte' | 'conseiller' | 'generateur' | 'reviewer'
 type AgentStatus = 'idle' | 'running' | 'done' | 'error'
 
 interface AgentState {
@@ -25,7 +25,7 @@ interface WorkflowPipelineProps {
   isRunning?: boolean
 }
 
-const PIPELINE_ORDER: AgentName[] = ['orchestrateur', 'architecte', 'generateur', 'reviewer']
+const PIPELINE_ORDER: AgentName[] = ['orchestrateur', 'architecte', 'conseiller', 'generateur', 'reviewer']
 
 export function WorkflowPipeline({ agents, progress, isRunning }: WorkflowPipelineProps) {
   const showProgress = isRunning || (progress !== null && progress !== undefined)

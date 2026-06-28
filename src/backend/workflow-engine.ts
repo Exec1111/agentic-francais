@@ -4,11 +4,20 @@ import { validateLLMOutput } from './validation'
 import { runArchitect, ArchitectOutput } from './agents/architect'
 import { runGenerator, GeneratorOutput } from './agents/generator'
 import { runReviewer } from './agents/reviewer'
+import { runPedagogyAdvisor } from './agents/pedagogy-advisor'
 import { searchCorpus, normalizeNiveau } from './repositories/corpus-repo'
 import {
-  Sequence, Review, AgentName, ReactDecisionSchema, OrchestratorOutputSchema,
-  CorpusSuggestionSchema, CorpusItem,
+  Sequence, Review, AgentName, OrchestratorOutputSchema,
+  CorpusSuggestionSchema, CorpusItem, PedagogyAdvisorOutput, ModePedagogique,
 } from '@/shared/schemas'
+
+// Décision pédagogique par séance, transmise par l'enseignant après le gate.
+export interface SeancePedagogie {
+  numero: number
+  mode: ModePedagogique
+  recommande?: boolean
+  justification?: string
+}
 
 // === Types d'événements ReAct ===
 
@@ -21,241 +30,159 @@ export type WorkflowEvent =
   | { type: 'agent_log'; agent: AgentName; message: string }
   | { type: 'agent_done'; agent: AgentName; output: unknown }
   | { type: 'agent_error'; agent: AgentName; error: string }
+  // Gate « enseignement explicite » : la structure est prête, on attend que
+  // l'enseignant choisisse le mode de chaque séance avant de générer les activités.
+  | { type: 'awaiting_pedagogy'; workflowId: string; architecture: ArchitectOutput; recommendations: PedagogyAdvisorOutput }
   | { type: 'workflow_done'; sequence: Sequence | null; review: Review | null }
   | { type: 'workflow_error'; error: string }
 
 import {
-  REACT_SYSTEM_PROMPT,
   ANALYSER_DEMANDE_SYSTEM_PROMPT,
   buildSuggestionMessages,
 } from './prompts/react-orchestrator'
 
-// === Interface du plan ReAct ===
+// === Flux en deux temps (gate « enseignement explicite ») ===
+//
+// Le parcours de génération est scindé en deux pour insérer une validation humaine
+// APRÈS l'architecte (un flux SSE ne peut pas attendre une réponse du client en cours
+// de route) :
+//   1. runStructurePhase  : orchestrateur → architecte → conseiller pédagogique,
+//      puis émet `awaiting_pedagogy` et s'arrête.
+//   2. runGenerationPhase : générateur (conscient du mode) → assemblage → reviewer.
+// Le client relaie l'architecture + le mode choisi par séance entre les deux.
 
-interface ReactStep {
-  thought: string
-  action: string
-  actionInput: string
-  observation: string
-}
 
-// === Moteur ReAct ===
-
-export async function* runWorkflow(
+/** Phase 1 : structure la séquence et recommande un mode par séance, puis s'arrête. */
+export async function* runStructurePhase(
   demande: string,
   provider?: string,
-  corpusRefs?: string[]
+  corpusRefs?: string[],
 ): AsyncGenerator<WorkflowEvent> {
   const workflowId = uuidv4()
   const llm: LLMProvider = createLLMProvider(provider)
-
-  // Résoudre les items corpus pré-sélectionnés une seule fois
-  const { getCorpusById } = await import('./repositories/corpus-repo')
-  const preselectedCorpusItems: CorpusItem[] = (corpusRefs ?? [])
-    .map((id) => getCorpusById(id))
-    .filter((item): item is CorpusItem => item !== null)
+  const preselectedCorpusItems = await resolveCorpusItems(corpusRefs)
 
   yield { type: 'workflow_start', workflowId, demande }
-
-  const MAX_STEPS = 8
-  const history: ReactStep[] = []
-  let architectOutput: ArchitectOutput | null = null
-  let generatorOutput: GeneratorOutput | null = null
-  let sequence: Sequence | null = null
-  let review: Review | null = null
-  // Meilleur essai conservé à travers les tentatives d'amélioration
-  let bestSequence: Sequence | null = null
-  let bestReview: Review | null = null
+  let step = 0
 
   try {
-    for (let step = 1; step <= MAX_STEPS; step++) {
-      // --- Construire le contexte pour l'orchestrateur ---
-      const contextMessages: LLMMessage[] = [
-        { role: 'system', content: REACT_SYSTEM_PROMPT },
-        { role: 'user', content: `Demande de l'enseignant : "${demande}"\n\nHistorique des étapes :\n${formatHistory(history)}\n\nQuelle est ta prochaine étape ?` },
-      ]
+    // 1) Orchestrateur — extraction des paramètres
+    step++
+    yield { type: 'react_thought', step, thought: 'J\'analyse la demande pour en extraire les paramètres.' }
+    yield { type: 'react_action', step, action: 'analyser_demande', input: demande }
+    yield { type: 'agent_start', agent: 'orchestrateur' }
+    const extractMessages: LLMMessage[] = [
+      { role: 'system', content: ANALYSER_DEMANDE_SYSTEM_PROMPT },
+      { role: 'user', content: demande },
+    ]
+    const extractOptions = { temperature: 0.2, schema: OrchestratorOutputSchema, schemaName: 'extract_params' }
+    const extractResp = await llm.chat(extractMessages, extractOptions)
+    const params = await validateLLMOutput({
+      schema: OrchestratorOutputSchema, raw: extractResp.content, context: 'analyser-demande',
+      llm, messages: extractMessages, options: extractOptions, maxRetries: 1,
+    })
+    yield { type: 'agent_done', agent: 'orchestrateur', output: params }
+    yield { type: 'react_observation', step, observation: `Niveau ${params.niveau}, thème « ${params.theme} », ${params.nombre_seances} séances` }
 
-      // --- THOUGHT + ACTION : l'orchestrateur raisonne ---
-      const reactChatOptions = { temperature: 1.0, schema: ReactDecisionSchema, schemaName: 'react_decision' }
-      const reactResponse = await llm.chat(contextMessages, reactChatOptions)
-      const parsed = await validateLLMOutput({
-        schema: ReactDecisionSchema,
-        raw: reactResponse.content,
-        context: `react-step-${step}`,
-        llm,
-        messages: contextMessages,
-        options: reactChatOptions,
-        maxRetries: 1,
-      })
+    // 2) Architecte — structure des séances
+    step++
+    yield { type: 'react_thought', step, thought: 'Je construis la structure pédagogique de la séquence.' }
+    yield { type: 'react_action', step, action: 'construire_sequence', input: params.theme }
+    yield { type: 'agent_start', agent: 'architecte' }
+    const archLogs: string[] = []
+    const architecture = await runArchitect(llm, params, (m) => archLogs.push(m), preselectedCorpusItems)
+    for (const log of archLogs) yield { type: 'agent_log', agent: 'architecte', message: log }
+    yield { type: 'agent_done', agent: 'architecte', output: architecture }
+    yield { type: 'react_observation', step, observation: `Séquence « ${architecture.titre_sequence} » — ${architecture.seances.length} séances` }
 
-      const thought = parsed.thought
-      const action = parsed.action
-      const actionInput = parsed.action_input
+    // 3) Conseiller pédagogique — recommandation par séance
+    step++
+    yield { type: 'react_thought', step, thought: 'J\'évalue quelles séances se prêtent à l\'enseignement explicite.' }
+    yield { type: 'react_action', step, action: 'conseiller_pedagogie', input: architecture.titre_sequence }
+    yield { type: 'agent_start', agent: 'conseiller' }
+    const advLogs: string[] = []
+    const recommendations = await runPedagogyAdvisor(llm, architecture, (m) => advLogs.push(m))
+    for (const log of advLogs) yield { type: 'agent_log', agent: 'conseiller', message: log }
+    yield { type: 'agent_done', agent: 'conseiller', output: recommendations }
+    const nbReco = recommendations.seances.filter((s) => s.recommande).length
+    yield { type: 'react_observation', step, observation: `${nbReco} séance(s) recommandée(s) en enseignement explicite` }
 
-      yield { type: 'react_thought', step, thought }
-      yield { type: 'react_action', step, action, input: actionInput }
-
-      // --- Exécuter l'action choisie ---
-      let observation = ''
-
-      switch (action) {
-        case 'analyser_demande': {
-          yield { type: 'agent_start', agent: 'orchestrateur' }
-          yield { type: 'agent_log', agent: 'orchestrateur', message: 'Analyse de la demande...' }
-
-          // Extraction simple des paramètres par le LLM
-          const extractMessages: LLMMessage[] = [
-            { role: 'system', content: ANALYSER_DEMANDE_SYSTEM_PROMPT },
-            { role: 'user', content: demande },
-          ]
-          const extractOptions = { temperature: 0.2, schema: OrchestratorOutputSchema, schemaName: 'extract_params' }
-          const extractResp = await llm.chat(extractMessages, extractOptions)
-          const params = await validateLLMOutput({
-            schema: OrchestratorOutputSchema,
-            raw: extractResp.content,
-            context: 'analyser-demande',
-            llm,
-            messages: extractMessages,
-            options: extractOptions,
-            maxRetries: 1,
-          })
-
-          observation = `Paramètres extraits — Niveau: ${params.niveau}, Thème: ${params.theme}, ${params.nombre_seances} séances`
-          yield { type: 'agent_log', agent: 'orchestrateur', message: observation }
-          yield { type: 'agent_done', agent: 'orchestrateur', output: params }
-
-          // Stocker pour les agents suivants
-          architectOutput = { ...params, titre_sequence: '', objectifs: [], competences: [], seances: [], evaluation_finale: null } as any
-          // On garde les params bruts dans l'architectOutput temporaire
-          ;(architectOutput as any)._params = params
-          break
-        }
-
-        case 'construire_sequence': {
-          yield { type: 'agent_start', agent: 'architecte' }
-          const params = (architectOutput as any)?._params || { niveau: '5e', theme: demande, nombre_seances: 5, contraintes: [], evaluation_finale: true, problematique_suggeree: '' }
-
-          const logs: string[] = []
-          architectOutput = await runArchitect(llm, params, (msg) => {
-            logs.push(msg)
-          }, preselectedCorpusItems)
-          for (const log of logs) {
-            yield { type: 'agent_log', agent: 'architecte', message: log }
-          }
-
-          observation = `Séquence "${architectOutput.titre_sequence}" structurée avec ${architectOutput.seances.length} séances`
-          yield { type: 'agent_done', agent: 'architecte', output: architectOutput }
-          break
-        }
-
-        case 'generer_activites': {
-          if (!architectOutput || !architectOutput.titre_sequence) {
-            observation = 'ERREUR: La séquence doit être construite avant de générer les activités'
-            break
-          }
-
-          yield { type: 'agent_start', agent: 'generateur' }
-          const logs: string[] = []
-          generatorOutput = await runGenerator(llm, architectOutput, (msg) => {
-            logs.push(msg)
-          }, preselectedCorpusItems)
-          for (const log of logs) {
-            yield { type: 'agent_log', agent: 'generateur', message: log }
-          }
-
-          // Assembler la séquence complète avec recherche corpus
-          sequence = await assembleSequence(workflowId, architectOutput, generatorOutput, llm, preselectedCorpusItems)
-
-          const totalActivites = generatorOutput.seances.reduce((acc, s) => acc + s.activites.length, 0)
-          observation = `${totalActivites} activités générées pour ${generatorOutput.seances.length} séances`
-          yield { type: 'agent_done', agent: 'generateur', output: generatorOutput }
-          break
-        }
-
-        case 'verifier_qualite': {
-          if (!sequence) {
-            observation = 'ERREUR: La séquence doit être complète avant la vérification'
-            break
-          }
-
-          yield { type: 'agent_start', agent: 'reviewer' }
-          const logs: string[] = []
-          review = await runReviewer(llm, sequence, (msg) => {
-            logs.push(msg)
-          })
-          for (const log of logs) {
-            yield { type: 'agent_log', agent: 'reviewer', message: log }
-          }
-
-          const totalSuggestions = review.suggestions.length + review.problemes.reduce((n, p) => n + (p.suggestions?.length ?? 0), 0)
-          observation = `Score qualité: ${review.score_qualite}/100 — ${review.problemes.length} problème(s) — ${totalSuggestions} suggestion(s)`
-          yield { type: 'agent_done', agent: 'reviewer', output: review }
-
-          // Conserver le meilleur essai
-          if (sequence && (!bestReview || review.score_qualite > bestReview.score_qualite)) {
-            bestSequence = sequence
-            bestReview = review
-          }
-          break
-        }
-
-        case 'ameliorer': {
-          if (!architectOutput || !sequence || !review) {
-            observation = 'ERREUR: Impossible d\'améliorer sans séquence et review'
-            break
-          }
-
-          yield { type: 'agent_start', agent: 'generateur' }
-          yield { type: 'agent_log', agent: 'generateur', message: '♻️ Re-génération avec prise en compte des critiques...' }
-
-          // Re-générer en incluant les critiques du reviewer
-          const logs: string[] = []
-          generatorOutput = await runGenerator(llm, architectOutput, (msg) => {
-            logs.push(msg)
-          })
-          for (const log of logs) {
-            yield { type: 'agent_log', agent: 'generateur', message: log }
-          }
-
-          sequence = await assembleSequence(workflowId, architectOutput, generatorOutput, llm, preselectedCorpusItems)
-          observation = 'Séquence améliorée — prête pour re-vérification'
-          yield { type: 'agent_done', agent: 'generateur', output: generatorOutput }
-          break
-        }
-
-        case 'terminer': {
-          observation = 'Workflow terminé.'
-          yield { type: 'react_observation', step, observation }
-          history.push({ thought, action, actionInput, observation })
-          yield { type: 'workflow_done', sequence: bestSequence ?? sequence, review: bestReview ?? review }
-          return
-        }
-
-        default: {
-          observation = `Action inconnue: ${action}. Actions valides: analyser_demande, construire_sequence, generer_activites, verifier_qualite, ameliorer, terminer`
-        }
-      }
-
-      yield { type: 'react_observation', step, observation }
-      history.push({ thought, action, actionInput, observation })
-    }
-
-    // Max steps atteint — utiliser le meilleur essai enregistré
-    yield { type: 'workflow_done', sequence: bestSequence ?? sequence, review: bestReview ?? review }
-
+    // 4) Gate : on rend la main à l'enseignant
+    yield { type: 'awaiting_pedagogy', workflowId, architecture, recommendations }
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : 'Erreur inconnue'
-    yield { type: 'workflow_error', error: errorMsg }
+    yield { type: 'workflow_error', error: error instanceof Error ? error.message : 'Erreur inconnue' }
+  }
+}
+
+/** Phase 2 : génère les activités (selon le mode choisi par séance), assemble et révise. */
+export async function* runGenerationPhase(
+  workflowId: string,
+  architecture: ArchitectOutput,
+  pedagogie: SeancePedagogie[],
+  provider?: string,
+  corpusRefs?: string[],
+): AsyncGenerator<WorkflowEvent> {
+  const llm: LLMProvider = createLLMProvider(provider)
+  const preselectedCorpusItems = await resolveCorpusItems(corpusRefs)
+  const byNumero = new Map(pedagogie.map((p) => [p.numero, p]))
+  const modeMap = new Map<number, ModePedagogique>(pedagogie.map((p) => [p.numero, p.mode]))
+
+  let step = 0
+  try {
+    // 5) Générateur — conscient du mode pédagogique de chaque séance
+    step++
+    yield { type: 'react_thought', step, thought: 'Je génère les activités en respectant le mode de chaque séance.' }
+    yield { type: 'react_action', step, action: 'generer_activites', input: architecture.titre_sequence }
+    yield { type: 'agent_start', agent: 'generateur' }
+    const genLogs: string[] = []
+    const generatorOutput = await runGenerator(llm, architecture, (m) => genLogs.push(m), preselectedCorpusItems, modeMap)
+    for (const log of genLogs) yield { type: 'agent_log', agent: 'generateur', message: log }
+    yield { type: 'agent_done', agent: 'generateur', output: generatorOutput }
+
+    let sequence = await assembleSequence(workflowId, architecture, generatorOutput, llm, preselectedCorpusItems)
+    // Attache le mode retenu et la recommandation à chaque séance.
+    sequence = {
+      ...sequence,
+      seances: sequence.seances.map((s) => {
+        const p = byNumero.get(s.numero)
+        if (!p) return s
+        return {
+          ...s,
+          mode_pedagogique: p.mode,
+          pedagogie_reco: p.recommande != null
+            ? { recommande: p.recommande, justification: p.justification ?? '' }
+            : s.pedagogie_reco,
+        }
+      }),
+    }
+    const totalActivites = generatorOutput.seances.reduce((acc, s) => acc + s.activites.length, 0)
+    yield { type: 'react_observation', step, observation: `${totalActivites} activités générées` }
+
+    // 6) Reviewer
+    step++
+    yield { type: 'react_thought', step, thought: 'Je vérifie la cohérence et la qualité de la séquence.' }
+    yield { type: 'react_action', step, action: 'verifier_qualite', input: sequence.titre }
+    yield { type: 'agent_start', agent: 'reviewer' }
+    const revLogs: string[] = []
+    const review = await runReviewer(llm, sequence, (m) => revLogs.push(m))
+    for (const log of revLogs) yield { type: 'agent_log', agent: 'reviewer', message: log }
+    yield { type: 'agent_done', agent: 'reviewer', output: review }
+    yield { type: 'react_observation', step, observation: `Score qualité : ${review.score_qualite}/100` }
+
+    yield { type: 'workflow_done', sequence, review }
+  } catch (error) {
+    yield { type: 'workflow_error', error: error instanceof Error ? error.message : 'Erreur inconnue' }
   }
 }
 
 // === Helpers ===
 
-function formatHistory(history: ReactStep[]): string {
-  if (history.length === 0) return '(aucune étape précédente)'
-  return history.map((h, i) =>
-    `Étape ${i + 1}:\n  Thought: ${h.thought}\n  Action: ${h.action}(${h.actionInput})\n  Observation: ${h.observation}`
-  ).join('\n\n')
+/** Résout des ids corpus pré-sélectionnés en items complets. */
+async function resolveCorpusItems(corpusRefs?: string[]): Promise<CorpusItem[]> {
+  const { getCorpusById } = await import('./repositories/corpus-repo')
+  return (corpusRefs ?? [])
+    .map((id) => getCorpusById(id))
+    .filter((item): item is CorpusItem => item !== null)
 }
 
 import { assignCorpusFromPreselection } from '@/shared/corpus-match'
