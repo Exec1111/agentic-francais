@@ -5,7 +5,7 @@ import { Bot, X } from 'lucide-react'
 import { WorkflowPipeline, WorkflowProgress } from './WorkflowPipeline'
 import { ReactTrace, ReactStepData } from './ReactTrace'
 
-type AgentName = 'orchestrateur' | 'architecte' | 'generateur' | 'reviewer'
+type AgentName = 'orchestrateur' | 'architecte' | 'conseiller' | 'generateur' | 'reviewer'
 type AgentStatus = 'idle' | 'running' | 'done' | 'error'
 
 interface AgentState {

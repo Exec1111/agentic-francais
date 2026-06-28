@@ -94,8 +94,8 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
     for (const seance of sequence.seances) {
       const seanceId = seance.id || newId()
       db.prepare(`
-        INSERT INTO seances (id, sequence_id, numero, titre, duree, objectifs, evaluation, ressources)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO seances (id, sequence_id, numero, titre, duree, objectifs, evaluation, ressources, mode_pedagogique, pedagogie_reco)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         seanceId,
         seqId,
@@ -104,13 +104,15 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
         seance.duree,
         toJson(seance.objectifs),
         seance.evaluation ?? null,
-        toJson(seance.ressources || [])
+        toJson(seance.ressources || []),
+        seance.mode_pedagogique ?? null,
+        seance.pedagogie_reco ? toJson(seance.pedagogie_reco) : null
       )
 
       for (const activite of seance.activites) {
         db.prepare(`
-          INSERT INTO activites (id, seance_id, titre, type, duree, consigne, supports, differenciation, ressources, corpus_ref, corpus_refs, corpus_status, corpus_suggestion)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO activites (id, seance_id, titre, type, duree, consigne, supports, differenciation, phase, ressources, corpus_ref, corpus_refs, corpus_status, corpus_suggestion)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           activite.id || newId(),
           seanceId,
@@ -120,6 +122,7 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
           activite.consigne,
           toJson(activite.supports || []),
           activite.differenciation ?? null,
+          activite.phase ?? null,
           toJson(activite.ressources || []),
           activite.corpus_refs?.[0] ?? activite.corpus_ref ?? null,
           toJson(activite.corpus_refs ?? (activite.corpus_ref ? [activite.corpus_ref] : [])),
@@ -211,6 +214,8 @@ export function getSequenceById(id: string): SequenceWithReview | null {
       duree: sr.duree,
       objectifs: fromJson<string[]>(sr.objectifs),
       evaluation: sr.evaluation ?? undefined,
+      mode_pedagogique: sr.mode_pedagogique ?? undefined,
+      pedagogie_reco: sr.pedagogie_reco ? fromJson<Seance['pedagogie_reco']>(sr.pedagogie_reco) : undefined,
       activites: [],
       ressources: fromJson<Ressource[]>(sr.ressources),
     }
@@ -227,6 +232,7 @@ export function getSequenceById(id: string): SequenceWithReview | null {
         consigne: ar.consigne,
         supports: fromJson<string[]>(ar.supports),
         differenciation: ar.differenciation ?? undefined,
+        phase: ar.phase ?? undefined,
         ressources: fromJson<Ressource[]>(ar.ressources),
         corpus_refs: fromJson<string[]>(ar.corpus_refs ?? '[]').length
           ? fromJson<string[]>(ar.corpus_refs ?? '[]')

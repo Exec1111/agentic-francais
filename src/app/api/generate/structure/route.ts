@@ -1,6 +1,11 @@
 import { NextRequest } from 'next/server'
-import { runWorkflow } from '@/backend/workflow-engine'
+import { runStructurePhase } from '@/backend/workflow-engine'
 
+/**
+ * Phase 1 du flux « enseignement explicite » : structure la séquence (orchestrateur →
+ * architecte → conseiller pédagogique) et s'arrête sur l'événement `awaiting_pedagogy`.
+ * Le client présente alors le gate de validation, puis appelle /api/generate/activities.
+ */
 export async function POST(request: NextRequest) {
   const body = await request.json()
   const { demande, provider, corpus_refs } = body as {
@@ -20,14 +25,12 @@ export async function POST(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        for await (const event of runWorkflow(demande, provider, corpus_refs)) {
-          const data = `data: ${JSON.stringify(event)}\n\n`
-          controller.enqueue(encoder.encode(data))
+        for await (const event of runStructurePhase(demande, provider, corpus_refs)) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Erreur inconnue'
-        const data = `data: ${JSON.stringify({ type: 'workflow_error', error: errorMsg })}\n\n`
-        controller.enqueue(encoder.encode(data))
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'workflow_error', error: errorMsg })}\n\n`))
       } finally {
         controller.close()
       }
