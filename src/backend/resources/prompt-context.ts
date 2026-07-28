@@ -16,7 +16,7 @@
 import { getProgrammeReperes } from '@/backend/pedagogie/programmes'
 import { buildCorpusContextBlocks } from '@/backend/workflow-engine'
 import type { ResourceGenerationContext } from './registry'
-import type { Sequence, CorpusItem, RessourceStructuree } from '@/shared/schemas'
+import type { Sequence, Seance, CorpusItem, RessourceStructuree } from '@/shared/schemas'
 
 /** Plafond de caractères par ressource injectée dans le digest (maîtrise du contexte). */
 const RESSOURCE_EXCERPT_CAP = 1200
@@ -161,6 +161,101 @@ export function buildSequenceDigest(
     if (withContent.length > 0) {
       lines.push('')
       lines.push('Textes disponibles intégralement (utilisables comme support de l\'évaluation) :')
+      lines.push(buildCorpusContextBlocks(withContent))
+    }
+  }
+
+  // Repères du programme
+  const reperes = getProgrammeReperes(sequence.niveau)
+  if (reperes) {
+    lines.push('')
+    lines.push(reperes)
+  }
+
+  return lines.join('\n')
+}
+
+/**
+ * Construit un digest texte d'UNE séance en profondeur, destiné à la génération
+ * de la fiche de préparation (déroulé enseignant). Contrairement à
+ * buildSequenceDigest (panorama de toute la séquence), ce digest détaille une
+ * seule séance : activités dans l'ordre AVEC LEURS IDS (à recopier dans les
+ * moments du déroulé), mode pédagogique, contenu des ressources produites
+ * (le cours nourrit la trace écrite au tableau), corpus, repères du programme.
+ *
+ * @param activiteResources  Ressources produites pour les activités de la séance
+ *   (version professeur), indexées par id d'activité. Plafonnées par
+ *   RESSOURCE_EXCERPT_CAP.
+ */
+export function buildSeanceDigest(
+  sequence: Sequence,
+  seance: Seance,
+  corpusItems: CorpusItem[] = [],
+  activiteResources: Record<string, RessourceStructuree[]> = {},
+): string {
+  const lines: string[] = ['SÉANCE À PRÉPARER (contenu complet) :']
+
+  // Contexte séquence + position dans la progression
+  lines.push(`- Séquence : "${sequence.titre}" | Niveau : ${sequence.niveau} | Thème : "${sequence.theme}"`)
+  if (sequence.problematique) {
+    lines.push(`- Problématique de la séquence : ${sequence.problematique}`)
+  }
+  const idx = sequence.seances.findIndex((s) => s.numero === seance.numero)
+  const precedente = idx > 0 ? sequence.seances[idx - 1] : null
+  const suivante = idx >= 0 && idx < sequence.seances.length - 1 ? sequence.seances[idx + 1] : null
+  lines.push(
+    `- Progression : séance ${seance.numero}/${sequence.seances.length}` +
+      (precedente ? ` | précédente : "${precedente.titre}"` : ' | première séance de la séquence') +
+      (suivante ? ` | suivante : "${suivante.titre}"` : ' | dernière séance de la séquence')
+  )
+
+  // La séance
+  lines.push('')
+  lines.push(`SÉANCE ${seance.numero} — "${seance.titre}" (durée totale : ${seance.duree} min)`)
+  if (seance.objectifs?.length) {
+    lines.push(`- Objectifs : ${seance.objectifs.join(' ; ')}`)
+  }
+  if (seance.mode_pedagogique === 'explicite') {
+    lines.push(`- Mode pédagogique : ENSEIGNEMENT EXPLICITE (canevas : ouverture → modelage → pratique guidée → pratique autonome → clôture)`)
+  } else {
+    lines.push(`- Mode pédagogique : standard`)
+  }
+
+  // Activités dans l'ordre, avec leurs ids (à recopier dans les moments)
+  lines.push('')
+  lines.push('ACTIVITÉS DE LA SÉANCE (dans l\'ordre — recopier les ids tels quels dans "activite_id") :')
+  let hasResources = false
+  for (const a of seance.activites ?? []) {
+    const phase = a.phase ? ` | phase : ${a.phase}` : ''
+    lines.push(`- [id: ${a.id ?? 'non persisté'}] "${a.titre}" (${a.type}, ${a.duree} min${phase})`)
+    if (a.consigne) lines.push(`  Consigne : ${a.consigne}`)
+    if (a.differenciation) lines.push(`  Différenciation prévue : ${a.differenciation}`)
+    const res = a.id ? activiteResources[a.id] : undefined
+    for (const r of res ?? []) {
+      hasResources = true
+      lines.push(`  ▸ Ressource « ${r.type} » produite pour cette activité :`)
+      lines.push(excerpt(r.contenu_markdown).split('\n').map((l) => `    ${l}`).join('\n'))
+    }
+  }
+  if ((seance.activites ?? []).length === 0) {
+    lines.push('- (aucune activité définie : construis un déroulé de moments enseignant cohérent avec les objectifs)')
+  }
+  if (hasResources) {
+    lines.push('')
+    lines.push('→ APPUIE-TOI sur ces ressources : la trace écrite reprend les notions du cours')
+    lines.push('  produit, les corrections anticipées s\'appuient sur les exercices réels.')
+  }
+
+  // Corpus lié aux activités de la séance
+  const withContent = corpusItems.filter((item) => item.contenu)
+  if (corpusItems.length > 0) {
+    lines.push('')
+    lines.push('TEXTES ÉTUDIÉS PENDANT LA SÉANCE :')
+    for (const item of corpusItems) {
+      lines.push(`- "${item.titre}" — ${item.auteur} (${item.oeuvre})`)
+    }
+    if (withContent.length > 0) {
+      lines.push('')
       lines.push(buildCorpusContextBlocks(withContent))
     }
   }

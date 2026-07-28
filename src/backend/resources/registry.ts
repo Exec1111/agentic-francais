@@ -70,6 +70,14 @@ export interface ResourceGenerationContext {
   sujetGenere?: unknown
   /** Active la production des champs d'autoévaluation de la grille. */
   evaluationFinale?: boolean
+
+  // ── Contexte « fiche de préparation » (scope séance) ────────────────────────
+  /** Digest texte de la séance complète (cf. buildSeanceDigest). */
+  seanceDigest?: string
+  /** Checksum du contenu de la séance — injecté par postProcess dans la fiche (anti-dérive). */
+  seanceChecksum?: string
+  /** Mode pédagogique de la séance (adapte les consignes du prompt : canevas explicite ou non). */
+  modePedagogique?: 'explicite' | 'standard'
 }
 
 // ── Interface à implémenter pour chaque type ───────────────────────────────────
@@ -152,6 +160,7 @@ import { ficheLectureDefinition } from './types/fiche-lecture'
 import { grilleEvaluationDefinition } from './types/grille-evaluation'
 import { carteMentaleDefinition } from './types/carte-mentale'
 import { evaluationSommativeDefinition } from './types/evaluation-sommative'
+import { fichePreparationDefinition } from './types/fiche-preparation'
 
 // ── Registre ──────────────────────────────────────────────────────────────────
 
@@ -168,6 +177,7 @@ const RESOURCE_REGISTRY: ResourceTypeDefinition<any>[] = [
   carteMentaleDefinition,
   dicteeDefinition,
   evaluationSommativeDefinition,
+  fichePreparationDefinition,
   // Ajouter les nouveaux types ici dans l'ordre souhaité d'affichage UI
 ]
 

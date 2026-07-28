@@ -119,6 +119,7 @@ export const RessourceTypeSchema = z.enum([
   'carte_mentale',
   'dictee',
   'evaluation_sommative',
+  'fiche_preparation',
 ])
 
 export const RessourceAudienceSchema = z.enum(['eleve', 'professeur'])
@@ -169,10 +170,12 @@ export const PedagogieRecoSchema = z.object({
 export const RessourceStructureeSchema = z.object({
   id: z.string(),
   activite_id: z.string().optional(),
-  /** Rattachement séquence (scope 'evaluation_finale'). Exclusif avec activite_id. */
+  /** Rattachement séquence (scope 'evaluation_finale'). Exclusif avec activite_id et seance_id. */
   sequence_id: z.string().optional(),
-  /** Portée de la ressource : liée à une activité, ou au niveau séquence (évaluation finale). */
-  scope: z.enum(['activite', 'evaluation_finale']).optional(),
+  /** Rattachement séance (scope 'seance' — fiche de préparation). Exclusif avec les deux autres. */
+  seance_id: z.string().optional(),
+  /** Portée de la ressource : activité, séquence (évaluation finale) ou séance (fiche de prép). */
+  scope: z.enum(['activite', 'evaluation_finale', 'seance']).optional(),
   type: RessourceTypeSchema,
   audience: RessourceAudienceSchema,
   /** Profil de différenciation. Absent/'standard' = version de référence. */

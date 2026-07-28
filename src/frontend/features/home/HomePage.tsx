@@ -290,6 +290,29 @@ export default function HomePage() {
     return [data.sujet.professeur, data.sujet.eleve, data.grille.eleve]
   }, [editor.sequence, review, provider, store])
 
+  // Génère la fiche de préparation d'une séance. Même contrat que l'évaluation
+  // finale : sauvegarde préalable (la fiche est rattachée par FK à la séance en
+  // base), puis appel de l'API d'orchestration. Retourne la fiche générée.
+  const handleGeneratePreparation = useCallback(async (seanceId: string, consignes?: string) => {
+    if (!editor.sequence) throw new Error('Aucune séquence en cours.')
+    // Garantit l'existence de la séquence ET de la séance en base (contrainte FK)
+    await store.save(editor.sequence, review)
+    const res = await fetch('/api/generate/preparation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sequenceId: editor.sequence.id,
+        seanceId,
+        sequence: editor.sequence,
+        provider,
+        consignes,
+      }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Erreur serveur')
+    return data.fiche
+  }, [editor.sequence, review, provider, store])
+
   // Relance le Reviewer sur la séquence courante (y compris après édition).
   // Produit une review au format structuré → correctifs au clic disponibles.
   const handleRunReview = useCallback(async () => {
@@ -491,7 +514,7 @@ export default function HomePage() {
                     </button>
                   </div>
 
-                  <SequenceEditor editor={editor} provider={provider} onGenerateEvaluation={handleGenerateEvaluation} />
+                  <SequenceEditor editor={editor} provider={provider} onGenerateEvaluation={handleGenerateEvaluation} onGeneratePreparation={handleGeneratePreparation} />
                 </motion.div>
               )}
             </AnimatePresence>

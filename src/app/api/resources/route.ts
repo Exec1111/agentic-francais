@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import {
   getRessourcesByActivite,
   getRessourcesBySequenceScope,
+  getRessourcesBySeanceScope,
   saveRessourcePaire,
   deleteRessourcePaire,
 } from '@/backend/repositories/resource-repo'
@@ -23,6 +24,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const activiteId = searchParams.get('activite_id')
   const sequenceId = searchParams.get('sequence_id')
+  const seanceId = searchParams.get('seance_id')
 
   // Rattachement séquence (évaluation finale)
   if (sequenceId) {
@@ -37,9 +39,22 @@ export async function GET(request: NextRequest) {
     return Response.json({ ressources })
   }
 
+  // Rattachement séance (fiche de préparation)
+  if (seanceId) {
+    const scope = searchParams.get('scope')
+    if (scope !== 'seance') {
+      return Response.json(
+        { error: "Le paramètre scope doit valoir 'seance' avec seance_id." },
+        { status: 400 }
+      )
+    }
+    const ressources = getRessourcesBySeanceScope(seanceId, 'seance')
+    return Response.json({ ressources })
+  }
+
   if (!activiteId) {
     return Response.json(
-      { error: 'Le paramètre activite_id ou sequence_id est requis.' },
+      { error: 'Le paramètre activite_id, sequence_id ou seance_id est requis.' },
       { status: 400 }
     )
   }

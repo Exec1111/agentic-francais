@@ -9,6 +9,7 @@
  */
 
 import { z } from 'zod'
+import { PhasePedagogiqueSchema } from './schemas'
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXTRAIT D'ŒUVRE
@@ -190,3 +191,47 @@ export const EvaluationSommativeContenuSchema = z.object({
 })
 
 export type EvaluationSommativeContenu = z.infer<typeof EvaluationSommativeContenuSchema>
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FICHE DE PRÉPARATION DE SÉANCE (déroulé enseignant — TEACHER ONLY)
+// Voir doc/fiche-preparation.md. Le déroulé est une suite de MOMENTS minutés :
+// un moment peut recouvrir une activité (activite_id) ou être un temps purement
+// enseignant (accueil, transition, passation de consignes → activite_id null).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const MomentDifficulteSchema = z.object({
+  difficulte: z.string().describe('Difficulté plausible et spécifique à la notion, pas une généralité'),
+  remediation: z.string().describe('Réponse concrète de l\'enseignant si la difficulté survient'),
+})
+
+export const MomentDidactiqueSchema = z.object({
+  ordre: z.number(),
+  intitule: z.string().describe('Ex. « Accueil et mise au travail », « Correction collective »'),
+  duree_min: z.number().describe('Durée du moment en minutes'),
+  phase: PhasePedagogiqueSchema.nullable().describe('Phase du canevas explicite — null si séance en mode standard'),
+  activite_id: z.string().nullable().describe('Id EXACT de l\'activité recouverte (fourni dans le contexte) — null pour un temps enseignant pur'),
+  modalite: z.enum(['collectif', 'individuel', 'binomes', 'groupes']),
+  role_enseignant: z.string().describe('Gestes professionnels concrets : ce que le professeur dit et fait, questions à poser'),
+  role_eleves: z.string().describe('Ce que font les élèves pendant ce temps'),
+  trace_ecrite: z.string().nullable().describe('Ce qu\'on écrit au tableau / dans le cahier pendant ce moment, ou null'),
+  difficultes_anticipees: z.array(MomentDifficulteSchema).nullable().describe('Difficultés anticipées avec leur remédiation, ou null'),
+  materiel: z.array(z.string()).nullable().describe('Matériel spécifique à ce moment, ou null'),
+  transition: z.string().nullable().describe('Comment on enchaîne vers le moment suivant, ou null pour le dernier'),
+})
+
+export const FichePreparationContenuSchema = z.object({
+  titre: z.string(),
+  place_dans_sequence: z.string().describe('Où en est-on dans la séquence : acquis des séances précédentes, ce que prépare cette séance'),
+  objectifs: z.array(z.string()).min(1),
+  prerequis: z.array(z.string()).nullable().describe('Acquis à réactiver en ouverture, ou null'),
+  materiel_global: z.array(z.string()).nullable().describe('Matériel à préparer pour toute la séance (photocopies, vidéoprojecteur…), ou null'),
+  deroule: z.array(MomentDidactiqueSchema).min(2).describe('Les moments minutés, dans l\'ordre chronologique'),
+  differenciation: z.string().nullable().describe('Ajustements prévus selon les profils d\'élèves, ou null'),
+  points_vigilance: z.array(z.string()).nullable().describe('Gestion de classe, pièges de la notion, ou null'),
+  prolongements: z.string().nullable().describe('Devoirs, lien vers la séance suivante, ou null'),
+  seance_checksum: z.string().nullable().describe('INJECTÉ PAR LE SYSTÈME après génération — toujours laisser null'),
+})
+
+export type MomentDidactique = z.infer<typeof MomentDidactiqueSchema>
+export type FichePreparationContenu = z.infer<typeof FichePreparationContenuSchema>
+
