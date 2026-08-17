@@ -132,6 +132,7 @@ export async function POST(request: NextRequest) {
       ressourceTitre,
       corpusItem,
       corpusItems,
+      corpusRefs: corpusItems.map((item) => item.id),
       // Contexte enrichi — transmis tel quel s'il est présent et bien formé
       sequenceProblematique: typeof sequenceProblematique === 'string' ? sequenceProblematique : undefined,
       sequenceObjectifs: Array.isArray(sequenceObjectifs) ? sequenceObjectifs : undefined,

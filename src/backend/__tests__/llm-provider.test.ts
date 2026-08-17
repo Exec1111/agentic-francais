@@ -54,6 +54,13 @@ describe('LLM Provider JSON Utilities', () => {
       expect(safeParseJSON(raw, 'test-truncated')).toEqual({ a: 1, b: 2 })
     })
 
+    it('should repair a missing comma between adjacent array objects', () => {
+      const raw = '{"items": [{"id": 1}\n{"id": 2}]}'
+      expect(safeParseJSON(raw, 'test-missing-array-comma')).toEqual({
+        items: [{ id: 1 }, { id: 2 }],
+      })
+    })
+
     it('should throw an error for completely invalid JSON', () => {
       const raw = 'This is not JSON at all'
       expect(() => safeParseJSON(raw, 'test-invalid')).toThrowError()

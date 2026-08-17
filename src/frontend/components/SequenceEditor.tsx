@@ -20,7 +20,6 @@ import { FichePreparationSection } from './FichePreparationSection'
 import type { ResourcePanelContext } from './ResourcePanel'
 import type { useSequenceEditor, SequencePath } from '@/frontend/hooks/useSequenceEditor'
 import type { Activite, CorpusItem, RessourceStructuree } from '@/shared/schemas'
-import { ACTIVITES_CORPUS, inferCorpusRefs, resolveActiviteCorpusRefs } from '@/shared/corpus-match'
 
 // Config visuelle des types de ressources IA (utilisée dans l'accordéon)
 const RESOURCE_TYPE_CONFIG: Record<string, { label: string; chip: string }> = {
@@ -62,35 +61,6 @@ const ACTIVITY_TYPES = [
   'exercice', 'production_ecrite', 'debat', 'lecture',
   'oral', 'evaluation', 'collaboration', 'recherche',
 ]
-
-// Types d'activités qui bénéficient d'un texte du corpus (même définition que côté serveur)
-const CORPUS_ACTIVITE_TYPES = ACTIVITES_CORPUS
-
-function computeEffectiveCorpusRefs(
-  activite: Activite,
-  sequenceCorpusRefs: string[],
-  corpusById: Record<string, CorpusMeta>,
-  seanceObjectifs: string[],
-): string[] {
-  const stored = resolveActiviteCorpusRefs(activite)
-  const candidates = sequenceCorpusRefs
-    .map((ref) => corpusById[ref])
-    .filter(Boolean) as CorpusMeta[]
-
-  if (candidates.length === 0) return stored
-
-  return inferCorpusRefs(
-    candidates,
-    activite.type,
-    activite.titre,
-    seanceObjectifs,
-    {
-      consigne: activite.consigne,
-      supports: activite.supports,
-      existingRefs: stored,
-    }
-  )
-}
 
 // Types de ressources suggérés par type d'activité (affichage inline)
 const SUGGESTED_RESOURCES: Record<string, string[]> = {
@@ -303,32 +273,13 @@ export function SequenceEditor({ editor, provider, onGenerateEvaluation, onGener
 
     const data = await res.json()
 
-    const sequenceCorpusItems = (sequence.corpus_refs ?? [])
-      .map((id) => corpusById[id])
-      .filter(Boolean) as CorpusMeta[]
-
-    const newCorpusRefs = CORPUS_ACTIVITE_TYPES.has(data.activite.type) && sequenceCorpusItems.length > 0
-      ? inferCorpusRefs(
-          sequenceCorpusItems,
-          data.activite.type,
-          data.activite.titre,
-          seance.objectifs,
-          {
-            consigne: data.activite.consigne,
-            supports: data.activite.supports,
-            existingRefs: resolveActiviteCorpusRefs(activite),
-          }
-        )
-      : resolveActiviteCorpusRefs(activite)
-
     editor.replaceActivite(seanceIndex, activiteIndex, {
       ...data.activite,
       ressources: activite.ressources || [],
-      corpus_refs: newCorpusRefs,
-      corpus_status: newCorpusRefs.length > 0
-        ? 'trouve'
-        : (activite.corpus_status ?? data.activite.corpus_status),
-      corpus_suggestion: activite.corpus_suggestion,
+      // Les textes sont désormais portés par les ressources, pas par l'activité.
+      corpus_refs: [],
+      corpus_status: 'non_requis',
+      corpus_suggestion: undefined,
     })
   }, [sequence, provider, editor, corpusById])
 
@@ -879,13 +830,7 @@ function ActiviteBlock({
   const [isResourcesOpen, setIsResourcesOpen] = useState(false)
 
   // Paires de ressources IA chargées depuis la DB
-  const [resourcePairs, setResourcePairs] = useState<Array<{ type: string; hasEleve: boolean }>>([])
-
-  // Infère les liens corpus à partir des supports/consigne si un seul texte est encore stocké.
-  const effectiveCorpusRefs = useMemo(
-    () => computeEffectiveCorpusRefs(activite, sequenceCorpusRefs, corpusById, seanceObjectifs),
-    [activite, sequenceCorpusRefs, corpusById, seanceObjectifs]
-  )
+  const [resourcePairs, setResourcePairs] = useState<Array<{ type: string; hasEleve: boolean; corpusRefs: string[] }>>([])
 
   // Charge (ou recharge) les ressources IA pour cette activité
   useEffect(() => {
@@ -894,7 +839,7 @@ function ActiviteBlock({
       .then(r => r.json())
       .then(data => {
         if (!Array.isArray(data.ressources)) return
-        const rows = data.ressources as Array<{ id: string; type: string; audience: string; paired_with?: string }>
+        const rows = data.ressources as Array<{ id: string; type: string; audience: string; paired_with?: string; corpus_refs?: string[] }>
         // Une paire = 1 ligne professeur + éventuellement 1 ligne élève
         // L'élève pointe vers le prof via paired_with → on construit un Set des prof_id qui ont un élève
         const profIds = new Set(rows.filter(r => r.audience === 'eleve').map(r => r.paired_with).filter(Boolean))
@@ -902,6 +847,9 @@ function ActiviteBlock({
         setResourcePairs(profRows.map(r => ({
           type: r.type,
           hasEleve: profIds.has(r.id),
+          // Les ressources historiques n'ont pas encore de sélection persistée :
+          // elles héritent du corpus complet de la séquence.
+          corpusRefs: r.corpus_refs ?? sequenceCorpusRefs,
         })))
       })
       .catch(() => { /* silencieux */ })
@@ -1052,28 +1000,24 @@ function ActiviteBlock({
         </div>
       )}
 
-      <CorpusBadge
-        status={activite.corpus_status}
-        corpusRefs={effectiveCorpusRefs}
-        suggestion={activite.corpus_suggestion}
-        sequenceCorpusRefs={sequenceCorpusRefs}
-        niveau={niveau}
-        onAssociate={(ref) => editor.replaceActivite(seanceIndex, activiteIndex, {
-          ...activite,
-          corpus_refs: Array.from(new Set([...effectiveCorpusRefs, ref])),
-          corpus_status: 'trouve',
-        })}
-        onDeposit={(item) => {
-          onCorpusDeposited(item)
-          editor.replaceActivite(seanceIndex, activiteIndex, {
-            ...activite,
-            corpus_refs: Array.from(new Set([...effectiveCorpusRefs, item.id])),
-            corpus_status: 'trouve',
-          })
-        }}
-        onView={onViewCorpus}
-        corpusById={corpusById}
-      />
+      {resourcePairs.some((pair) => pair.corpusRefs.length > 0) && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] uppercase tracking-wide text-gray-500">Textes travaillés :</span>
+          {Array.from(new Set(resourcePairs.flatMap((pair) => pair.corpusRefs))).map((ref) => {
+            const label = corpusLabel(corpusById[ref], ref)
+            return (
+              <button
+                key={ref}
+                onClick={() => onViewCorpus(ref)}
+                title={corpusTooltip(corpusById[ref], label)}
+                className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-950/40 text-emerald-500/80 border border-emerald-800/30 hover:bg-emerald-900/40 hover:text-emerald-300 transition-colors"
+              >
+                <BookOpen className="h-2.5 w-2.5" />{label}<Eye className="h-2.5 w-2.5 opacity-60" />
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {/* ── Zone Ressources IA ── */}
       {(() => {
@@ -1084,7 +1028,7 @@ function ActiviteBlock({
           activiteTitre: activite.titre,
           activiteType: activite.type,
           activiteConsigne: activite.consigne,
-          corpusRefs: effectiveCorpusRefs,
+          corpusRefs: sequenceCorpusRefs,
         })
 
         if (resourcePairs.length === 0) {
@@ -1166,10 +1110,21 @@ function ActiviteBlock({
                           onClick={openPanel}
                           className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-md hover:bg-blue-500/10 transition-colors group"
                         >
-                          <span className={cn('text-[11px] px-2 py-0.5 rounded border font-medium shrink-0', cfg?.chip ?? 'text-gray-400 border-gray-700')}>
-                            {cfg?.label ?? pair.type}
-                          </span>
-                          <span className="flex-1" />
+                           <span className={cn('text-[11px] px-2 py-0.5 rounded border font-medium shrink-0', cfg?.chip ?? 'text-gray-400 border-gray-700')}>
+                             {cfg?.label ?? pair.type}
+                           </span>
+                           <div className="flex flex-wrap gap-1 min-w-0">
+                             {pair.corpusRefs.map(ref => (
+                               <span
+                                 key={ref}
+                                 className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-950/40 text-emerald-400/80 border border-emerald-800/40"
+                                 title={corpusTooltip(corpusById[ref], corpusLabel(corpusById[ref], ref))}
+                               >
+                                 <BookOpen className="h-2.5 w-2.5" />{corpusLabel(corpusById[ref], ref)}
+                               </span>
+                             ))}
+                           </div>
+                           <span className="flex-1" />
                           {/* Indicateurs audience */}
                           {pair.hasEleve && (
                             <span className="inline-flex items-center gap-0.5 text-[10px] text-blue-400/80 bg-blue-500/10 border border-blue-700/30 px-1.5 py-0.5 rounded-full">
@@ -1193,7 +1148,7 @@ function ActiviteBlock({
                         activiteTitre: activite.titre,
                         activiteType: activite.type,
                         activiteConsigne: activite.consigne,
-                        corpusRefs: effectiveCorpusRefs,
+                        corpusRefs: sequenceCorpusRefs,
                         startInGenerateMode: true,
                       })}
                       className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-md border border-dashed border-blue-800/40 text-[11px] text-blue-500/70 hover:text-blue-400 hover:border-blue-700/60 hover:bg-blue-500/5 transition-all"

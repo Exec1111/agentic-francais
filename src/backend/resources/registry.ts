@@ -40,6 +40,8 @@ export interface ResourceGenerationContext {
   corpusItem?: CorpusItem | null
   /** Tous les textes liés à l'activité (comparaison, activités multi-supports). */
   corpusItems?: CorpusItem[]
+  /** IDs des textes explicitement sélectionnés pour cette ressource. */
+  corpusRefs?: string[]
 
   // ── Contexte pédagogique enrichi (optionnel — transmis par le frontend) ────
   /** Problématique de la séquence */

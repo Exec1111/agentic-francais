@@ -26,6 +26,7 @@ export interface LLMCallLog {
   options?: { temperature?: number; json?: boolean }
   response?: string
   error?: string
+  doneReason?: string
   durationMs: number
 }
 
@@ -69,6 +70,9 @@ function logCall(log: LLMCallLog) {
   }
   if (log.error) {
     console.log(`❌ ERROR: ${log.error}`)
+  }
+  if (log.doneReason) {
+    console.log(`ℹ️ DONE REASON: ${log.doneReason}`)
   }
   console.log(`${'═'.repeat(80)}\n`)
 }
@@ -169,7 +173,10 @@ export class OllamaProvider implements LLMProvider {
     this.model = process.env.OLLAMA_MODEL || 'llama3'
     // Fenêtre de contexte : le défaut Ollama (2048/4096) est trop petit pour
     // les prompts de ressources (contexte pédagogique + corpus) + sortie JSON longue.
-    this.numCtx = Number(process.env.OLLAMA_NUM_CTX) || 8192
+    // Les fiches structurées + le texte source + les consignes dépassent
+    // régulièrement 8k tokens. Ollama tronque alors la sortie JSON au milieu
+    // d'une chaîne. La valeur reste configurable via OLLAMA_NUM_CTX.
+    this.numCtx = Number(process.env.OLLAMA_NUM_CTX) || 16384
     // Durée de résidence du modèle en VRAM entre deux appels. Le défaut Ollama
     // (5 min) provoque un rechargement (~10-30 s pour 8 GB) si les générations
     // sont espacées. 30 min garde le modèle chaud pendant une session de travail
@@ -230,7 +237,7 @@ export class OllamaProvider implements LLMProvider {
 
       const data = await response.json()
       const content = data.message?.content || ''
-      logCall({ id, timestamp: new Date().toISOString(), provider: `ollama/${this.model}`, messages, options: { temperature: options?.temperature, json: !!options?.schema || options?.json }, response: content, durationMs: Date.now() - start })
+       logCall({ id, timestamp: new Date().toISOString(), provider: `ollama/${this.model}`, messages, options: { temperature: options?.temperature, json: !!options?.schema || options?.json }, response: content, doneReason: data.done_reason, durationMs: Date.now() - start })
 
       return {
         content,
@@ -276,6 +283,11 @@ export function extractJSON(raw: string): string {
   // ,] → ] et ,} → }
   cleaned = cleaned.replace(/,\s*([}\]])/g, '$1')
 
+  // Certains modèles produisent deux objets/tableaux adjacents sans virgule,
+  // notamment dans les longues listes de blocs : `}\n{`. Cette correction ne
+  // touche que les séparateurs structurels hors chaînes JSON.
+  cleaned = repairMissingValueSeparators(cleaned)
+
   // Supprime les commentaires // ...
   cleaned = cleaned.replace(/\/\/[^\n]*/g, '')
 
@@ -283,6 +295,47 @@ export function extractJSON(raw: string): string {
   cleaned = cleaned.replace(/\/\*[\s\S]*?\*\//g, '')
 
   return cleaned
+}
+
+function repairMissingValueSeparators(input: string): string {
+  let output = ''
+  let inString = false
+  let escaped = false
+
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i]
+
+    if (inString) {
+      output += char
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+      output += char
+      continue
+    }
+
+    if (char === '}' || char === ']') {
+      output += char
+      let next = i + 1
+      while (next < input.length && /\s/.test(input[next])) next += 1
+      const nextChar = input[next]
+      if (nextChar === '{' || nextChar === '[') output += ','
+      continue
+    }
+
+    output += char
+  }
+
+  return output
 }
 
 // === Utilitaire : parse JSON avec retry et logs ===

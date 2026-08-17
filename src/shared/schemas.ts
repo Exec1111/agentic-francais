@@ -170,6 +170,8 @@ export const PedagogieRecoSchema = z.object({
 export const RessourceStructureeSchema = z.object({
   id: z.string(),
   activite_id: z.string().optional(),
+  /** IDs des textes du corpus utilisés comme référence pour cette ressource. */
+  corpus_refs: z.array(z.string()).optional(),
   /** Rattachement séquence (scope 'evaluation_finale'). Exclusif avec activite_id et seance_id. */
   sequence_id: z.string().optional(),
   /** Rattachement séance (scope 'seance' — fiche de préparation). Exclusif avec les deux autres. */
@@ -226,10 +228,13 @@ export const ActiviteSchema = z.object({
   /** Phase du canevas d'enseignement explicite. Présent uniquement si la séance est en mode 'explicite'. */
   phase: PhasePedagogiqueSchema.optional(),
   ressources: z.array(RessourceSchema).optional().default([]),
-  /** @deprecated Utiliser corpus_refs — conservé pour la rétrocompatibilité à la lecture. */
+  /** @deprecated Les textes sont désormais déduits des ressources de l'activité. */
   corpus_ref: z.string().optional(),
+  /** @deprecated Les textes sont désormais déduits des ressources de l'activité. */
   corpus_refs: z.array(z.string()).default([]),
+  /** @deprecated Les textes sont désormais déduits des ressources de l'activité. */
   corpus_status: z.enum(['non_requis', 'trouve', 'manquant', 'manquant_sans_suggestion']).optional(),
+  /** @deprecated Les textes sont désormais déduits des ressources de l'activité. */
   corpus_suggestion: CorpusSuggestionSchema.optional(),
 })
 

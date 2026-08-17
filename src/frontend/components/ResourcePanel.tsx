@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  X, Sparkles, GraduationCap, User, Edit3, Eye,
-  Printer, CheckCircle2, Loader2, Plus, AlertCircle, Save, RefreshCw, Trash2, Lock,
+  X, Sparkles, GraduationCap, User, Edit3, Eye, BookOpen,
+  Printer, Check, CheckCircle2, Loader2, Plus, AlertCircle, Save, RefreshCw, Trash2, Lock,
 } from 'lucide-react'
 import { cn } from '@/shared/utils'
 import type { RessourcePaire, RessourceStructuree, RessourceType, DifferentiationProfil } from '@/shared/schemas'
@@ -256,6 +256,9 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
   // null = inconnu (pas encore chargé), true = contenu disponible, false = protégé
   const [corpusHasContent, setCorpusHasContent] = useState<boolean | null>(null)
   const [corpusMeta, setCorpusMeta] = useState<{ auteur: string; oeuvre: string; pages?: string } | null>(null)
+  const [corpusOptions, setCorpusOptions] = useState<Array<{ id: string; titre: string; oeuvre: string; auteur: string }>>([])
+  // Sélection portée par la prochaine génération ; par défaut, tous les textes de la séquence.
+  const [selectedCorpusRefs, setSelectedCorpusRefs] = useState<string[]>([])
 
   // Ref pour détecter un vrai changement de ressource (vs mise à jour de pairs après save)
   const currentResourceIdRef = useRef<string | null>(null)
@@ -279,7 +282,22 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
       setTypeMenuOpen(false)
       setConsignes('')
       setConsignesOpen(false)
+      setSelectedCorpusRefs([])
+      setCorpusOptions([])
       return
+    }
+
+    setSelectedCorpusRefs(context.corpusRefs ?? [])
+    if (context.corpusRefs?.length) {
+      fetch('/api/corpus')
+        .then(r => r.json())
+        .then(data => {
+          const refs = new Set(context.corpusRefs)
+          setCorpusOptions((data.items ?? []).filter((item: { id: string }) => refs.has(item.id)))
+        })
+        .catch(() => setCorpusOptions([]))
+    } else {
+      setCorpusOptions([])
     }
 
     // Charger les suggestions pour ce type d'activité
@@ -301,6 +319,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
             // afin que les chips de suggestions soient visibles et cliquables au premier plan.
             if (!context.startInGenerateMode) {
               setSelectedIdx(0)
+              setSelectedCorpusRefs(grouped[0]?.professeur.corpus_refs ?? context.corpusRefs ?? [])
             }
           }
         })
@@ -311,9 +330,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
 
   // ── Vérification disponibilité du texte corpus ────────────────────────────
 
-  const activeCorpusRefs = context.corpusRefs?.length
-    ? context.corpusRefs
-    : (context.corpusRef ? [context.corpusRef] : [])
+  const activeCorpusRefs = selectedCorpusRefs
 
   useEffect(() => {
     if (!isOpen || activeCorpusRefs.length === 0) {
@@ -353,6 +370,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
       // Changement de ressource → réinitialiser proprement
       currentResourceIdRef.current = resource.id
       setEditedContent(resource.contenu_markdown)
+      setSelectedCorpusRefs(resource.corpus_refs !== undefined ? resource.corpus_refs : (context.corpusRefs ?? []))
       // Tente de parser le contenu en blocs (fiche_questions). null → mode Markdown.
       const blocUI = getBlocResourceUI(resource.type)
       const blocs = blocUI ? blocUI.parse(resource.contenu_json) : null
@@ -390,8 +408,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
           activiteConsigne: context.activiteConsigne,
           ressourceType:    type,
           ressourceTitre:   DEFAULT_TITLES[type] || type,
-          corpus_refs:      activeCorpusRefs.length > 0 ? activeCorpusRefs : undefined,
-          corpus_ref:       activeCorpusRefs[0],
+           corpus_refs:      activeCorpusRefs,
           provider,
           // Contexte pédagogique enrichi
           sequenceProblematique: context.sequenceProblematique,
@@ -416,7 +433,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
     } finally {
       setGeneratingType(null)
     }
-  }, [context, provider, consignes])
+  }, [context, provider, consignes, activeCorpusRefs])
 
   const handleGenerate = useCallback(async (type: RessourceType) => {
     const paire = await generateOne(type)
@@ -483,8 +500,7 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
           activiteType:     context.activiteType,
           activiteConsigne: context.activiteConsigne,
           ressourceTitre:   DEFAULT_TITLES[paire.professeur.type] || paire.professeur.type,
-          corpus_refs:      activeCorpusRefs.length > 0 ? activeCorpusRefs : undefined,
-          corpus_ref:       activeCorpusRefs[0],
+           corpus_refs:      paire.professeur.corpus_refs ?? [],
           provider,
           sequenceProblematique: context.sequenceProblematique,
           sequenceObjectifs:     context.sequenceObjectifs,
@@ -821,6 +837,56 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
               )}
 
               {/* Suggestions à générer + sélecteur libre de tous les types */}
+              {corpusOptions.length > 0 && (
+                <div className="rounded-lg border border-emerald-800/40 bg-emerald-950/10 px-2.5 py-2 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-300">
+                      <BookOpen className="h-3 w-3" /> Textes de référence
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCorpusRefs(selectedCorpusRefs.length === corpusOptions.length ? [] : corpusOptions.map(item => item.id))}
+                      className="text-[10px] text-emerald-400/80 hover:text-emerald-200"
+                    >
+                      {selectedCorpusRefs.length === corpusOptions.length ? 'Tout désélectionner' : 'Tout sélectionner'}
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {corpusOptions.map(item => {
+                      const checked = selectedCorpusRefs.includes(item.id)
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          aria-pressed={checked}
+                          title={`${item.auteur} — ${item.oeuvre}`}
+                          onClick={() => setSelectedCorpusRefs(prev => checked ? prev.filter(id => id !== item.id) : [...prev, item.id])}
+                          className={cn(
+                            'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all',
+                            checked
+                              ? 'bg-emerald-950/40 border-emerald-700/50 text-emerald-300'
+                              : 'bg-gray-900/40 border-gray-800 text-gray-400 hover:border-gray-700 hover:text-gray-300',
+                          )}
+                        >
+                          <span className={cn(
+                            'h-3.5 w-3.5 rounded-full border flex items-center justify-center shrink-0 transition-colors',
+                            checked ? 'border-emerald-500 bg-emerald-500' : 'border-gray-600',
+                          )}>
+                            {checked && <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />}
+                          </span>
+                          <BookOpen className="h-3 w-3 shrink-0 opacity-80" />
+                          <span className="truncate max-w-[220px]">{item.titre || item.oeuvre}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="text-[10px] text-gray-500">
+                    Cette sélection s'applique aux prochaines générations. Tous les textes sont sélectionnés par défaut.
+                  </p>
+                </div>
+              )}
+
+              {/* Suggestions à générer + sélecteur libre de tous les types */}
               <div className="flex flex-wrap gap-1.5 items-center">
                 {pendingSuggestions.map(type => {
                   const cfg = TYPE_CONFIG[type] ?? { label: type, color: 'border-gray-700 text-gray-500' }
@@ -1121,6 +1187,20 @@ export function ResourcePanel({ isOpen, onClose, context, provider }: ResourcePa
                       </button>
                     </div>
                   </div>
+
+                  {currentResource && (
+                    <div className="px-4 py-2 border-b border-gray-800/40 flex flex-wrap items-center gap-1.5 shrink-0">
+                      <span className="text-[10px] uppercase tracking-wide text-gray-500">Textes de référence :</span>
+                      {(currentResource.corpus_refs ?? []).length > 0 ? (currentResource.corpus_refs ?? []).map(ref => {
+                        const item = corpusOptions.find(option => option.id === ref)
+                        return (
+                          <span key={ref} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-950/50 text-emerald-400 border border-emerald-800/40">
+                            <BookOpen className="h-2.5 w-2.5" />{item?.titre || item?.oeuvre || ref}
+                          </span>
+                        )
+                      }) : <span className="text-[10px] text-gray-600">Aucun texte du corpus</span>}
+                    </div>
+                  )}
 
                   {/* ── Différenciation : variantes élève adaptées ── */}
                   {hasEleve && (

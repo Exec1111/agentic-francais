@@ -19,11 +19,12 @@ export function saveRessourcePaire(paire: RessourcePaire): RessourcePaire {
   const db = getDb()
 
   const upsertStmt = db.prepare(`
-    INSERT INTO ressources (id, activite_id, sequence_id, seance_id, scope, type, audience, profil, derived_from, paired_with, contenu_json, contenu_markdown, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO ressources (id, activite_id, sequence_id, seance_id, scope, type, audience, profil, derived_from, paired_with, corpus_refs, contenu_json, contenu_markdown, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       contenu_json     = excluded.contenu_json,
       contenu_markdown = excluded.contenu_markdown,
+      corpus_refs      = excluded.corpus_refs,
       updated_at       = excluded.updated_at
   `)
 
@@ -48,6 +49,7 @@ export function saveRessourcePaire(paire: RessourcePaire): RessourcePaire {
         paire.eleve.profil ?? 'standard',
         paire.eleve.derived_from ?? null,
         null,   // paired_with temporairement null
+        toJson(paire.eleve.corpus_refs ?? []),
         toJson(paire.eleve.contenu_json),
         paire.eleve.contenu_markdown,
         paire.eleve.created_at ?? ts,
@@ -67,6 +69,7 @@ export function saveRessourcePaire(paire: RessourcePaire): RessourcePaire {
       paire.professeur.profil ?? 'standard',
       paire.professeur.derived_from ?? null,
       paire.professeur.paired_with ?? null,
+      toJson(paire.professeur.corpus_refs ?? []),
       toJson(paire.professeur.contenu_json),
       paire.professeur.contenu_markdown,
       paire.professeur.created_at ?? ts,
@@ -92,11 +95,12 @@ export function saveRessource(r: RessourceStructuree): RessourceStructuree {
   const db = getDb()
   const ts = now()
   db.prepare(`
-    INSERT INTO ressources (id, activite_id, sequence_id, seance_id, scope, type, audience, profil, derived_from, paired_with, contenu_json, contenu_markdown, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO ressources (id, activite_id, sequence_id, seance_id, scope, type, audience, profil, derived_from, paired_with, corpus_refs, contenu_json, contenu_markdown, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       contenu_json     = excluded.contenu_json,
       contenu_markdown = excluded.contenu_markdown,
+      corpus_refs      = excluded.corpus_refs,
       updated_at       = excluded.updated_at
   `).run(
     r.id,
@@ -109,6 +113,7 @@ export function saveRessource(r: RessourceStructuree): RessourceStructuree {
     r.profil ?? 'standard',
     r.derived_from ?? null,
     r.paired_with ?? null,
+    toJson(r.corpus_refs ?? []),
     toJson(r.contenu_json),
     r.contenu_markdown,
     r.created_at ?? ts,
@@ -318,6 +323,7 @@ function rowToRessource(row: any): RessourceStructuree {
   return {
     id: row.id,
     activite_id: row.activite_id ?? undefined,
+    corpus_refs: row.corpus_refs == null ? undefined : fromJson<string[]>(row.corpus_refs),
     sequence_id: row.sequence_id ?? undefined,
     seance_id: row.seance_id ?? undefined,
     scope: (row.scope as RessourceStructuree['scope']) ?? undefined,

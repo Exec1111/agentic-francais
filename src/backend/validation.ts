@@ -54,13 +54,16 @@ export async function validateLLMOutput<T extends z.ZodTypeAny>(
   if (llm && messages && maxRetries > 0) {
     onLog?.(`♻️ Retry avec correction (${maxRetries} tentative(s) restante(s))...`)
 
-    const feedbackMsg = json === undefined
-      ? `Ta réponse précédente n'est PAS du JSON. Tu as renvoyé du texte libre.\n\nTu DOIS répondre UNIQUEMENT avec un objet JSON valide, sans aucun texte avant ou après.\nPas de markdown, pas d'explication, JUSTE le JSON.`
-      : `Ta réponse JSON précédente est invalide. Voici les erreurs de validation :\n${parseError}\n\nCorrige ta réponse et renvoie UNIQUEMENT du JSON valide respectant exactement le schéma demandé.`
+    const feedbackMsg = parseError
+      ? `Ta réponse JSON précédente est syntaxiquement invalide. Erreur détectée :\n${parseError}\n\nLa réponse semble avoir été interrompue ou contient une erreur de syntaxe. Recommence la sortie depuis le début et renvoie l'objet JSON COMPLET, avec toutes les virgules, tous les crochets et toutes les chaînes fermés. Ne renvoie pas de fragment.\n\nRéponds UNIQUEMENT avec du JSON valide, sans markdown ni explication.`
+      : `Ta réponse précédente n'est PAS du JSON. Tu as renvoyé du texte libre.\n\nTu DOIS répondre UNIQUEMENT avec un objet JSON valide, sans aucun texte avant ou après.\nPas de markdown, pas d'explication, JUSTE le JSON.`
 
     const retryMessages: LLMMessage[] = [
       ...messages,
-      { role: 'assistant', content: raw.slice(0, 2000) },
+      {
+        role: 'assistant',
+        content: buildRetryResponseExcerpt(raw, parseError),
+      },
       { role: 'user', content: feedbackMsg },
     ]
 
@@ -82,6 +85,20 @@ export async function validateLLMOutput<T extends z.ZodTypeAny>(
   throw new Error(
     `[${context}] Validation échouée après retry:\n${parseError}`
   )
+}
+
+/**
+ * Donne au modèle la zone réellement fautive sans faire exploser le contexte
+ * avec une copie complète d'une longue fiche JSON.
+ */
+function buildRetryResponseExcerpt(raw: string, parseError: string | null): string {
+  const position = parseError?.match(/position (\d+)/i)?.[1]
+  if (!position) return raw.slice(0, 4000)
+
+  const at = Number(position)
+  const start = Math.max(0, at - 1200)
+  const end = Math.min(raw.length, at + 1200)
+  return `${start > 0 ? '[début de la réponse omis]\n' : ''}${raw.slice(start, end)}${end < raw.length ? '\n[fin de la réponse omise]' : ''}`
 }
 
 /**

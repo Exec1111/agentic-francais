@@ -77,6 +77,7 @@ export async function generateResourcePair(opts: GenerateResourceOptions): Promi
   const professeur: RessourceStructuree = {
     id: profId,
     activite_id: context.activiteId,
+    corpus_refs: context.corpusRefs ?? (context.corpusItems ?? []).map((item) => item.id),
     type,
     audience: 'professeur',
     paired_with: eleveId,
@@ -97,6 +98,7 @@ export async function generateResourcePair(opts: GenerateResourceOptions): Promi
     const eleve: RessourceStructuree = {
       id: eleveId,
       activite_id: context.activiteId,
+      corpus_refs: professeur.corpus_refs,
       type,
       audience: 'eleve',
       paired_with: profId,
@@ -141,6 +143,7 @@ export function buildBlankResourcePair(type: RessourceType, activiteId?: string)
   const professeur: RessourceStructuree = {
     id: profId,
     activite_id: activiteId,
+    corpus_refs: [],
     type,
     audience: 'professeur',
     paired_with: eleveId,
@@ -154,6 +157,7 @@ export function buildBlankResourcePair(type: RessourceType, activiteId?: string)
     const eleve: RessourceStructuree = {
       id: eleveId,
       activite_id: activiteId,
+      corpus_refs: professeur.corpus_refs,
       type,
       audience: 'eleve',
       paired_with: profId,

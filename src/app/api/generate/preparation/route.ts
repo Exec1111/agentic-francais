@@ -10,7 +10,6 @@ import {
 } from '@/backend/repositories/resource-repo'
 import { SequenceSchema } from '@/shared/schemas'
 import { computeSeanceChecksum } from '@/shared/seance-checksum'
-import { resolveActiviteCorpusRefs } from '@/shared/corpus-match'
 import type { ResourceGenerationContext, ActiviteType } from '@/backend/resources/registry'
 import type { CorpusItem, RessourceStructuree, RessourceType } from '@/shared/schemas'
 
@@ -62,14 +61,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Corpus lié aux activités de la séance (textes réellement étudiés pendant la séance)
-    const corpusIds = Array.from(
-      new Set((seance.activites ?? []).flatMap((a) => resolveActiviteCorpusRefs(a)))
-    )
-    const corpusItems: CorpusItem[] = corpusIds
-      .map((id) => getCorpusById(id))
-      .filter((item): item is CorpusItem => item != null)
-
     // Ressources produites pour les activités de la séance (version prof, types « contenu »)
     // — c'est ce qui nourrit la trace écrite et les corrections anticipées.
     const activiteResources: Record<string, RessourceStructuree[]> = {}
@@ -80,6 +71,23 @@ export async function POST(request: NextRequest) {
       )
       if (res.length) activiteResources[a.id] = res
     }
+
+    // Les textes de la séance sont dérivés des ressources réellement produites.
+    // Le fallback sur les anciennes références d'activité ne sert qu'aux données
+    // créées avant la migration vers les références portées par les ressources.
+    const corpusIds = Array.from(new Set(
+      (seance.activites ?? []).flatMap((a) => {
+        const refs = a.id
+          ? getRessourcesByActivite(a.id)
+              .filter((r) => r.audience === 'professeur')
+              .flatMap((r) => r.corpus_refs ?? [])
+          : []
+        return refs.length > 0 ? refs : (a.corpus_refs ?? (a.corpus_ref ? [a.corpus_ref] : []))
+      })
+    ))
+    const corpusItems: CorpusItem[] = corpusIds
+      .map((id) => getCorpusById(id))
+      .filter((item): item is CorpusItem => item != null)
 
     const digest = buildSeanceDigest(sequence, seance, corpusItems, activiteResources)
     const checksum = computeSeanceChecksum(seance)
@@ -95,6 +103,7 @@ export async function POST(request: NextRequest) {
       activiteType: 'exercice' as ActiviteType, // non utilisé par le type (cohérence d'interface)
       activiteConsigne: '',
       ressourceTitre: `Fiche de préparation — Séance ${seance.numero} : ${seance.titre}`,
+      corpusRefs: corpusIds,
       seanceDigest: digest,
       seanceChecksum: checksum,
       modePedagogique: seance.mode_pedagogique,

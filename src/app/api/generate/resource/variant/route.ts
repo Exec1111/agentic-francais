@@ -105,6 +105,7 @@ export async function POST(request: NextRequest) {
       ressourceTitre: ressourceTitre || '',
       corpusItem,
       corpusItems,
+      corpusRefs: corpusItems.map((item) => item.id),
       sequenceProblematique: typeof sequenceProblematique === 'string' ? sequenceProblematique : undefined,
       sequenceObjectifs: Array.isArray(sequenceObjectifs) ? sequenceObjectifs : undefined,
       sequenceCompetences: Array.isArray(sequenceCompetences) ? sequenceCompetences : undefined,

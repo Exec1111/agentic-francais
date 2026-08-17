@@ -268,6 +268,43 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE activites ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    version: 13,
+    name: 'corpus_refs_on_ressources',
+    sql: `
+      -- Une ressource peut exploiter tout ou partie du corpus de la séquence.
+      -- JSON array d'IDs ; [] signifie qu'aucun texte n'est utilisé.
+      -- NULL distingue les ressources historiques (avant cette fonctionnalité)
+      -- d'une ressource nouvelle explicitement générée sans texte.
+      ALTER TABLE ressources ADD COLUMN corpus_refs TEXT DEFAULT NULL;
+    `,
+  },
+  {
+    version: 14,
+    name: 'migrate_activity_corpus_refs_to_resources',
+    sql: `
+      -- Les anciennes références d'activité deviennent les références des
+      -- ressources existantes quand elles n'en possèdent pas encore.
+      UPDATE ressources
+      SET corpus_refs = (
+        SELECT CASE
+          WHEN a.corpus_refs IS NOT NULL AND a.corpus_refs != '[]' THEN a.corpus_refs
+          WHEN a.corpus_ref IS NOT NULL AND a.corpus_ref != '' THEN json_array(a.corpus_ref)
+          ELSE '[]'
+        END
+        FROM activites a
+        WHERE a.id = ressources.activite_id
+      )
+      WHERE corpus_refs IS NULL AND activite_id IS NOT NULL;
+
+      -- Les liens d'activité ne sont plus une source de vérité.
+      UPDATE activites
+      SET corpus_ref = NULL,
+          corpus_refs = '[]',
+          corpus_status = NULL,
+          corpus_suggestion = NULL;
+    `,
+  },
 ]
 
 function runMigrations(db: Database.Database) {

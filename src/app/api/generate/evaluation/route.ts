@@ -91,6 +91,7 @@ export async function POST(request: NextRequest) {
       activiteType: 'evaluation' as ActiviteType,
       activiteConsigne: sequence.evaluation_finale ?? '',
       ressourceTitre: `Évaluation finale — ${sequence.titre}`,
+      corpusRefs: corpusItems.map((item) => item.id),
       sequenceDigest: digest,
       consignes: typeof consignes === 'string' ? consignes : undefined,
     }

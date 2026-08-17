@@ -165,6 +165,7 @@ export async function generateVariant(opts: GenerateVariantOptions): Promise<Res
   return {
     id: newId(),
     activite_id: context.activiteId,
+    corpus_refs: context.corpusRefs ?? (context.corpusItems ?? []).map((item) => item.id),
     type,
     audience: 'eleve',
     profil,
