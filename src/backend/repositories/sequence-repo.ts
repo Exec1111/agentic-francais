@@ -43,8 +43,16 @@ export interface SequenceWithReview {
 
 /**
  * Sauvegarde ou met à jour une séquence complète (avec séances, activités, review).
- * Stratégie : upsert séquence, puis delete cascadé des anciennes séances/activités,
- * puis réinsertion.
+ *
+ * Stratégie : upsert de la séquence, des séances et des activités, puis suppression
+ * CIBLÉE des seules lignes dont l'id ne figure plus dans la séquence entrante.
+ * Les lignes conservées gardent leur id → les ressources qui les référencent par FK
+ * (ressources.activite_id, ressources.seance_id) survivent à la sauvegarde. Un
+ * delete + réinsertion global déclencherait les ON DELETE CASCADE et détruirait
+ * toutes les ressources générées à chaque save (cf. doc/fiche-preparation.md §2).
+ *
+ * L'ordre des activités est persisté dans activites.position (le rowid n'est plus
+ * réécrit par l'upsert) ; celui des séances repose sur numero, réécrit par l'éditeur.
  */
 export function saveSequence(sequence: Sequence, review?: Review | null): string {
   const db = getDb()
@@ -87,16 +95,48 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
       timestamp
     )
 
-    // 2. Supprimer anciennes séances (cascade vers activités)
-    db.prepare('DELETE FROM seances WHERE sequence_id = ?').run(seqId)
+    // 2. Upsert des séances et activités (les ids conservés gardent leurs ressources)
+    const upsertSeance = db.prepare(`
+      INSERT INTO seances (id, sequence_id, numero, titre, duree, objectifs, evaluation, ressources, mode_pedagogique, pedagogie_reco)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        sequence_id      = excluded.sequence_id,
+        numero           = excluded.numero,
+        titre            = excluded.titre,
+        duree            = excluded.duree,
+        objectifs        = excluded.objectifs,
+        evaluation       = excluded.evaluation,
+        ressources       = excluded.ressources,
+        mode_pedagogique = excluded.mode_pedagogique,
+        pedagogie_reco   = excluded.pedagogie_reco
+    `)
+    const upsertActivite = db.prepare(`
+      INSERT INTO activites (id, seance_id, position, titre, type, duree, consigne, supports, differenciation, phase, ressources, corpus_ref, corpus_refs, corpus_status, corpus_suggestion)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        seance_id         = excluded.seance_id,
+        position          = excluded.position,
+        titre             = excluded.titre,
+        type              = excluded.type,
+        duree             = excluded.duree,
+        consigne          = excluded.consigne,
+        supports          = excluded.supports,
+        differenciation   = excluded.differenciation,
+        phase             = excluded.phase,
+        ressources        = excluded.ressources,
+        corpus_ref        = excluded.corpus_ref,
+        corpus_refs       = excluded.corpus_refs,
+        corpus_status     = excluded.corpus_status,
+        corpus_suggestion = excluded.corpus_suggestion
+    `)
 
-    // 3. Insérer nouvelles séances et activités
+    const keptSeanceIds: string[] = []
+    const keptActiviteIds: string[] = []
+
     for (const seance of sequence.seances) {
       const seanceId = seance.id || newId()
-      db.prepare(`
-        INSERT INTO seances (id, sequence_id, numero, titre, duree, objectifs, evaluation, ressources, mode_pedagogique, pedagogie_reco)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      keptSeanceIds.push(seanceId)
+      upsertSeance.run(
         seanceId,
         seqId,
         seance.numero,
@@ -109,13 +149,13 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
         seance.pedagogie_reco ? toJson(seance.pedagogie_reco) : null
       )
 
-      for (const activite of seance.activites) {
-        db.prepare(`
-          INSERT INTO activites (id, seance_id, titre, type, duree, consigne, supports, differenciation, phase, ressources, corpus_ref, corpus_refs, corpus_status, corpus_suggestion)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          activite.id || newId(),
+      seance.activites.forEach((activite, position) => {
+        const activiteId = activite.id || newId()
+        keptActiviteIds.push(activiteId)
+        upsertActivite.run(
+          activiteId,
           seanceId,
+          position,
           activite.titre,
           activite.type,
           activite.duree,
@@ -129,7 +169,28 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
           activite.corpus_status ?? null,
           activite.corpus_suggestion ? toJson(activite.corpus_suggestion) : null
         )
+      })
+    }
+
+    // 3. Suppression ciblée des lignes retirées de la séquence (la cascade nettoie
+    // alors légitimement leurs ressources générées).
+    const placeholders = (ids: string[]) => ids.map(() => '?').join(',')
+    if (keptSeanceIds.length > 0) {
+      db.prepare(
+        `DELETE FROM seances WHERE sequence_id = ? AND id NOT IN (${placeholders(keptSeanceIds)})`
+      ).run(seqId, ...keptSeanceIds)
+      if (keptActiviteIds.length > 0) {
+        db.prepare(`
+          DELETE FROM activites WHERE seance_id IN (SELECT id FROM seances WHERE sequence_id = ?)
+            AND id NOT IN (${placeholders(keptActiviteIds)})
+        `).run(seqId, ...keptActiviteIds)
+      } else {
+        db.prepare(
+          'DELETE FROM activites WHERE seance_id IN (SELECT id FROM seances WHERE sequence_id = ?)'
+        ).run(seqId)
       }
+    } else {
+      db.prepare('DELETE FROM seances WHERE sequence_id = ?').run(seqId)
     }
 
     // 4. Sauvegarder la review si présente
@@ -221,7 +282,9 @@ export function getSequenceById(id: string): SequenceWithReview | null {
     }
 
     // Activités
-    const actRows = db.prepare('SELECT * FROM activites WHERE seance_id = ? ORDER BY rowid').all(sr.id) as any[]
+    // position = ordre d'affichage (écrit par saveSequence) ; rowid en fallback pour
+    // les lignes antérieures à la migration v12 (toutes à position 0).
+    const actRows = db.prepare('SELECT * FROM activites WHERE seance_id = ? ORDER BY position, rowid').all(sr.id) as any[]
     for (const ar of actRows) {
       seance.activites.push({
         id: ar.id,

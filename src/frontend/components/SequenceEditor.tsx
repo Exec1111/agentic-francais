@@ -16,6 +16,7 @@ import { ResourcePanel } from './ResourcePanel'
 import { CorpusViewer } from './CorpusViewer'
 import { TextDepositPanel } from './TextDepositPanel'
 import { EvaluationFinaleSection } from './EvaluationFinaleSection'
+import { FichePreparationSection } from './FichePreparationSection'
 import type { ResourcePanelContext } from './ResourcePanel'
 import type { useSequenceEditor, SequencePath } from '@/frontend/hooks/useSequenceEditor'
 import type { Activite, CorpusItem, RessourceStructuree } from '@/shared/schemas'
@@ -34,6 +35,7 @@ const RESOURCE_TYPE_CONFIG: Record<string, { label: string; chip: string }> = {
   carte_mentale:     { label: 'Carte mentale',  chip: 'bg-teal-500/10 text-teal-400 border-teal-600/30' },
   dictee:            { label: 'Dictée',         chip: 'bg-rose-500/10 text-rose-400 border-rose-600/30' },
   evaluation_sommative: { label: "Sujet d'éval.", chip: 'bg-red-500/10 text-red-400 border-red-600/30' },
+  fiche_preparation: { label: 'Fiche de prép.', chip: 'bg-amber-500/10 text-amber-400 border-amber-600/30' },
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -113,6 +115,11 @@ interface SequenceEditorProps {
    * la section évaluation finale masque le bouton de génération.
    */
   onGenerateEvaluation?: (consignes?: string) => Promise<RessourceStructuree[]>
+  /**
+   * Génère la fiche de préparation d'une séance (même contrat : le parent sauvegarde
+   * la séquence puis appelle l'API). Si absent, la section est masquée.
+   */
+  onGeneratePreparation?: (seanceId: string, consignes?: string) => Promise<RessourceStructuree>
 }
 
 const PANEL_CLOSED: ResourcePanelContext = {
@@ -157,7 +164,7 @@ export function corpusTooltip(meta: CorpusMeta | undefined, label: string): stri
   return `Lire le texte : ${label}`
 }
 
-export function SequenceEditor({ editor, provider, onGenerateEvaluation }: SequenceEditorProps) {
+export function SequenceEditor({ editor, provider, onGenerateEvaluation, onGeneratePreparation }: SequenceEditorProps) {
   const { sequence } = editor
   const [panelOpen, setPanelOpen] = useState(false)
   const [panelContext, setPanelContext] = useState<ResourcePanelContext>(PANEL_CLOSED)
@@ -581,6 +588,7 @@ export function SequenceEditor({ editor, provider, onGenerateEvaluation }: Seque
               onViewCorpus={setViewCorpusId}
               corpusById={corpusById}
               onCorpusDeposited={handleCorpusDeposited}
+              onGeneratePreparation={onGeneratePreparation}
             />
           ))}
         </Reorder.Group>
@@ -639,6 +647,7 @@ function SeanceBlock({
   onViewCorpus,
   corpusById,
   onCorpusDeposited,
+  onGeneratePreparation,
 }: {
   seance: any
   seanceIndex: number
@@ -654,6 +663,7 @@ function SeanceBlock({
   onViewCorpus: (ref: string) => void
   corpusById: Record<string, CorpusMeta>
   onCorpusDeposited: (item: CorpusItem) => void
+  onGeneratePreparation?: (seanceId: string, consignes?: string) => Promise<RessourceStructuree>
 }) {
   const [collapsed, setCollapsed] = useState(false)
   const dragControls = useDragControls()
@@ -804,6 +814,14 @@ function SeanceBlock({
                 Ajouter une activité
               </button>
             </div>
+
+            {/* Fiche de préparation (déroulé enseignant) — nécessite une séance persistée (FK) */}
+            {onGeneratePreparation && seance.id && (
+              <FichePreparationSection
+                seance={seance}
+                onGenerate={(consignes) => onGeneratePreparation(seance.id, consignes)}
+              />
+            )}
           </motion.div>
         )}
       </AnimatePresence>

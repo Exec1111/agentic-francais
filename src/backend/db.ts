@@ -251,6 +251,23 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE activites ADD COLUMN phase TEXT;
     `,
   },
+  {
+    version: 12,
+    name: 'fiche_preparation_seance_scope',
+    sql: `
+      -- Rattachement d'une ressource au niveau séance (fiche de préparation).
+      -- Une ressource a exactement un rattachement : activite_id (scope 'activite'),
+      -- sequence_id (scope 'evaluation_finale') ou seance_id (scope 'seance').
+      -- Invariant garanti par le code applicatif. Voir doc/fiche-preparation.md.
+      ALTER TABLE ressources ADD COLUMN seance_id TEXT REFERENCES seances(id) ON DELETE CASCADE;
+      CREATE INDEX IF NOT EXISTS idx_ressources_seance ON ressources(seance_id);
+
+      -- Ordre des activités persisté explicitement : saveSequence upsert les lignes
+      -- au lieu de les réinsérer, le rowid ne reflète donc plus l'ordre d'affichage.
+      -- Lecture en ORDER BY position, rowid (fallback pour les lignes pré-migration).
+      ALTER TABLE activites ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ]
 
 function runMigrations(db: Database.Database) {

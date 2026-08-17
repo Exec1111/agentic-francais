@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { buildContextePedagogique, buildSequenceDigest } from '../prompt-context'
+import { buildContextePedagogique, buildSequenceDigest, buildSeanceDigest } from '../prompt-context'
 import { getProgrammeReperes, normalizeNiveau } from '@/backend/pedagogie/programmes'
 import type { ResourceGenerationContext } from '../registry'
 import type { Sequence, RessourceStructuree } from '@/shared/schemas'
@@ -196,5 +196,91 @@ describe('buildSequenceDigest', () => {
   it('sans ressources, n\'affiche pas l\'invite d\'appui', () => {
     const d = buildSequenceDigest(sequence())
     expect(d).not.toContain('imite le FORMAT')
+  })
+})
+
+// ── buildSeanceDigest (fiche de préparation) ──────────────────────────────────
+
+describe('buildSeanceDigest', () => {
+  const sequence = (): Sequence => ({
+    id: 'seq-1',
+    titre: 'Le récit d\'aventure',
+    niveau: '5e',
+    theme: 'Le voyage et l\'aventure',
+    problematique: 'Pourquoi partir vers l\'inconnu ?',
+    objectifs: ['Comprendre le schéma narratif'],
+    competences: ['Lire un récit'],
+    corpus_refs: [],
+    ressources: [],
+    seances: [
+      { id: 'sea-1', numero: 1, titre: 'Le départ', duree: 55, objectifs: [], activites: [], ressources: [] },
+      {
+        id: 'sea-2', numero: 2, titre: 'Le schéma narratif', duree: 55,
+        objectifs: ['Identifier les cinq étapes'], mode_pedagogique: 'explicite', ressources: [],
+        activites: [
+          {
+            id: 'act-1', titre: 'Étude guidée', type: 'lecture', duree: 30,
+            consigne: 'Repérer les étapes du récit', phase: 'pratique_guidee',
+            differenciation: 'Texte raccourci pour le groupe allégé',
+            corpus_refs: [], ressources: [],
+          },
+        ],
+      },
+      { id: 'sea-3', numero: 3, titre: 'Écriture', duree: 55, objectifs: [], activites: [], ressources: [] },
+    ],
+  })
+
+  const seanceOf = (seq: Sequence, numero: number) => seq.seances.find((s) => s.numero === numero)!
+
+  it('situe la séance dans la progression (précédente / suivante)', () => {
+    const seq = sequence()
+    const d = buildSeanceDigest(seq, seanceOf(seq, 2))
+    expect(d).toContain('séance 2/3')
+    expect(d).toContain('précédente : "Le départ"')
+    expect(d).toContain('suivante : "Écriture"')
+  })
+
+  it('signale la première et la dernière séance', () => {
+    const seq = sequence()
+    expect(buildSeanceDigest(seq, seanceOf(seq, 1))).toContain('première séance de la séquence')
+    expect(buildSeanceDigest(seq, seanceOf(seq, 3))).toContain('dernière séance de la séquence')
+  })
+
+  it('liste les activités avec leur id, leur phase et leur consigne', () => {
+    const seq = sequence()
+    const d = buildSeanceDigest(seq, seanceOf(seq, 2))
+    expect(d).toContain('[id: act-1] "Étude guidée" (lecture, 30 min | phase : pratique_guidee)')
+    expect(d).toContain('Consigne : Repérer les étapes du récit')
+    expect(d).toContain('Différenciation prévue : Texte raccourci')
+  })
+
+  it('mentionne le mode pédagogique (canevas explicite)', () => {
+    const seq = sequence()
+    expect(buildSeanceDigest(seq, seanceOf(seq, 2))).toContain('ENSEIGNEMENT EXPLICITE')
+    expect(buildSeanceDigest(seq, seanceOf(seq, 1))).toContain('Mode pédagogique : standard')
+  })
+
+  it('injecte le contenu des ressources produites et invite à s\'appuyer dessus', () => {
+    const seq = sequence()
+    const d = buildSeanceDigest(seq, seanceOf(seq, 2), [], {
+      'act-1': [{
+        id: 'r1', type: 'cours', audience: 'professeur',
+        contenu_json: {}, contenu_markdown: 'NOTION_CLE : les cinq étapes du récit.',
+      }],
+    })
+    expect(d).toContain('Ressource « cours »')
+    expect(d).toContain('NOTION_CLE')
+    expect(d).toContain('la trace écrite reprend les notions du cours')
+  })
+
+  it('signale une séance sans activités au lieu de produire un bloc vide', () => {
+    const seq = sequence()
+    const d = buildSeanceDigest(seq, seanceOf(seq, 1))
+    expect(d).toContain('aucune activité définie')
+  })
+
+  it('inclut les repères du programme du niveau', () => {
+    const seq = sequence()
+    expect(buildSeanceDigest(seq, seanceOf(seq, 2))).toContain('REPÈRES DU PROGRAMME OFFICIEL')
   })
 })

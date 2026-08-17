@@ -19,8 +19,8 @@ export function saveRessourcePaire(paire: RessourcePaire): RessourcePaire {
   const db = getDb()
 
   const upsertStmt = db.prepare(`
-    INSERT INTO ressources (id, activite_id, sequence_id, scope, type, audience, profil, derived_from, paired_with, contenu_json, contenu_markdown, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO ressources (id, activite_id, sequence_id, seance_id, scope, type, audience, profil, derived_from, paired_with, contenu_json, contenu_markdown, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       contenu_json     = excluded.contenu_json,
       contenu_markdown = excluded.contenu_markdown,
@@ -41,6 +41,7 @@ export function saveRessourcePaire(paire: RessourcePaire): RessourcePaire {
         paire.eleve.id,
         paire.eleve.activite_id ?? null,
         paire.eleve.sequence_id ?? null,
+        paire.eleve.seance_id ?? null,
         paire.eleve.scope ?? 'activite',
         paire.eleve.type,
         'eleve',
@@ -59,6 +60,7 @@ export function saveRessourcePaire(paire: RessourcePaire): RessourcePaire {
       paire.professeur.id,
       paire.professeur.activite_id ?? null,
       paire.professeur.sequence_id ?? null,
+      paire.professeur.seance_id ?? null,
       paire.professeur.scope ?? 'activite',
       paire.professeur.type,
       'professeur',
@@ -90,8 +92,8 @@ export function saveRessource(r: RessourceStructuree): RessourceStructuree {
   const db = getDb()
   const ts = now()
   db.prepare(`
-    INSERT INTO ressources (id, activite_id, sequence_id, scope, type, audience, profil, derived_from, paired_with, contenu_json, contenu_markdown, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO ressources (id, activite_id, sequence_id, seance_id, scope, type, audience, profil, derived_from, paired_with, contenu_json, contenu_markdown, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       contenu_json     = excluded.contenu_json,
       contenu_markdown = excluded.contenu_markdown,
@@ -100,6 +102,7 @@ export function saveRessource(r: RessourceStructuree): RessourceStructuree {
     r.id,
     r.activite_id ?? null,
     r.sequence_id ?? null,
+    r.seance_id ?? null,
     r.scope ?? 'activite',
     r.type,
     r.audience,
@@ -134,6 +137,18 @@ export function getRessourcesBySequenceScope(
   const rows = db
     .prepare('SELECT * FROM ressources WHERE sequence_id = ? AND scope = ? ORDER BY created_at ASC')
     .all(sequenceId, scope) as any[]
+  return rows.map(rowToRessource)
+}
+
+/** Récupère les ressources rattachées à une séance pour un scope donné (fiche de préparation). */
+export function getRessourcesBySeanceScope(
+  seanceId: string,
+  scope: 'seance'
+): RessourceStructuree[] {
+  const db = getDb()
+  const rows = db
+    .prepare('SELECT * FROM ressources WHERE seance_id = ? AND scope = ? ORDER BY created_at ASC')
+    .all(seanceId, scope) as any[]
   return rows.map(rowToRessource)
 }
 
@@ -282,6 +297,21 @@ export function deleteRessourcesBySequenceScope(
   return result.changes
 }
 
+/**
+ * Supprime toutes les ressources d'un scope séance (pour régénération propre de la
+ * fiche de préparation). Retourne le nombre de ressources supprimées.
+ */
+export function deleteRessourcesBySeanceScope(
+  seanceId: string,
+  scope: 'seance'
+): number {
+  const db = getDb()
+  const result = db
+    .prepare('DELETE FROM ressources WHERE seance_id = ? AND scope = ?')
+    .run(seanceId, scope)
+  return result.changes
+}
+
 // ── Helper interne ─────────────────────────────────────────────────────────────
 
 function rowToRessource(row: any): RessourceStructuree {
@@ -289,6 +319,7 @@ function rowToRessource(row: any): RessourceStructuree {
     id: row.id,
     activite_id: row.activite_id ?? undefined,
     sequence_id: row.sequence_id ?? undefined,
+    seance_id: row.seance_id ?? undefined,
     scope: (row.scope as RessourceStructuree['scope']) ?? undefined,
     type: row.type as RessourceType,
     audience: row.audience as RessourceAudience,
