@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import {
   assignCorpusFromPreselection,
+  filterCorpusByExplicitWork,
   inferCorpusRefs,
+  isCorpusWorkMentioned,
   isCorpusItemMentioned,
 } from '../corpus-match'
 import type { CorpusMatchable } from '../corpus-match'
@@ -25,6 +27,33 @@ describe('isCorpusItemMentioned', () => {
     const ctx = "Dans le texte 'Le pacte du banc de classe', les actions sont au présent."
     expect(isCorpusItemMentioned(pacte, ctx)).toBe(true)
     expect(isCorpusItemMentioned(ble, ctx)).toBe(false)
+  })
+})
+
+describe('filtrage par œuvre explicitement demandée', () => {
+  it('ne retient que les passages de l’œuvre citée, pas les autres œuvres du même auteur', () => {
+    const vingtMille: CorpusMatchable = {
+      id: 'verne-vingt-mille',
+      auteur: 'Jules Verne',
+      oeuvre: 'Vingt mille lieues sous les mers',
+      titre: 'La forêt sous-marine',
+    }
+    const autreVerne: CorpusMatchable = {
+      id: 'verne-ile-mysterieuse',
+      auteur: 'Jules Verne',
+      oeuvre: "L'Île mystérieuse",
+      titre: 'Le naufrage',
+    }
+    const demande = 'Prépare une séquence à partir de Vingt mille lieues sous les mers de Jules Verne.'
+
+    expect(isCorpusWorkMentioned(vingtMille, demande)).toBe(true)
+    expect(isCorpusWorkMentioned(autreVerne, demande)).toBe(false)
+    expect(filterCorpusByExplicitWork([vingtMille, autreVerne], demande)).toEqual([vingtMille])
+  })
+
+  it("n'invente pas de filtre lorsqu'aucune œuvre n'est citée", () => {
+    const items = [pacte, ble]
+    expect(filterCorpusByExplicitWork(items, 'Prépare une séquence sur le récit d’aventure.')).toEqual([])
   })
 })
 

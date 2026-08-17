@@ -41,6 +41,25 @@ export function isCorpusItemMentioned(item: CorpusMatchable, contextText: string
   return matchCandidates(item).some((c) => ctx.includes(c))
 }
 
+/**
+ * Vérifie qu'une œuvre est explicitement citée, sans retenir l'auteur, le titre
+ * d'un passage ou son angle d'étude. Cette distinction est nécessaire lors de
+ * la présélection globale du corpus : une demande sur une œuvre ne doit pas
+ * faire remonter tous les textes du même auteur ou du même thème.
+ */
+export function isCorpusWorkMentioned(item: Pick<CorpusMatchable, 'oeuvre'>, contextText: string): boolean {
+  const oeuvre = normalizeForMatch(item.oeuvre)
+  return oeuvre.length >= 4 && normalizeForMatch(contextText).includes(oeuvre)
+}
+
+/** Retourne uniquement les items dont l'œuvre est explicitement citée. */
+export function filterCorpusByExplicitWork<T extends Pick<CorpusMatchable, 'oeuvre'>>(
+  items: T[],
+  contextText: string,
+): T[] {
+  return items.filter((item) => isCorpusWorkMentioned(item, contextText))
+}
+
 function scoreBestItem(
   corpusItems: CorpusMatchable[],
   activiteTitre: string,

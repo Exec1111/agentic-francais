@@ -4,6 +4,7 @@ import { searchCorpus, expandNiveauxForSearch } from '@/backend/repositories/cor
 import { rankCorpusWithLLM } from '@/backend/corpus-ranker'
 import { OrchestratorOutputSchema, CorpusSuggestionSchema, CorpusItem } from '@/shared/schemas'
 import { buildExtractParamsMessages, buildCorpusSuggestionMessages } from '@/backend/prompts/corpus-suggest'
+import { filterCorpusByExplicitWork } from '@/shared/corpus-match'
 
 export type CorpusSuggestResponse = {
   niveau: string
@@ -52,7 +53,13 @@ export async function POST(request: NextRequest) {
 
     // === Étape 2 : tout le corpus vérifié → LLM-juge de pertinence thématique ===
     // Pas de filtre par niveau : le prof fait son choix, l'UI signale les décalages.
-    const candidates = searchCorpus({ limit: 30 })
+    // Une œuvre citée explicitement est une contrainte forte. Le classement
+    // LLM reste utile pour une demande thématique, mais ne doit pas annuler
+    // cette contrainte en faisant remonter tout le corpus pertinent au sens
+    // large (notamment tous les textes du même auteur).
+    const allCandidates = searchCorpus({ limit: 10_000 })
+    const explicitWorkCandidates = filterCorpusByExplicitWork(allCandidates, demande)
+    const candidates = explicitWorkCandidates.length > 0 ? explicitWorkCandidates : allCandidates
 
     let found: CorpusItem[] = []
     if (candidates.length > 0) {
