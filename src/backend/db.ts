@@ -305,6 +305,15 @@ const MIGRATIONS: Migration[] = [
           corpus_suggestion = NULL;
     `,
   },
+  {
+    version: 15,
+    name: 'corpus_workflow_selection',
+    sql: `
+      ALTER TABLE sequences ADD COLUMN corpus_intent TEXT;
+      ALTER TABLE sequences ADD COLUMN corpus_study_type TEXT;
+      ALTER TABLE sequences ADD COLUMN corpus_passages TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
 ]
 
 function runMigrations(db: Database.Database) {

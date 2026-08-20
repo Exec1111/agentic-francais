@@ -32,10 +32,10 @@ export async function POST(
       )
     }
 
-    const { provider } = await request.json().catch(() => ({}))
+    const { provider, sequenceContext } = await request.json().catch(() => ({}))
     const llm = createLLMProvider(provider)
 
-    const passages = await runDecoupe(llm, oeuvre)
+    const passages = (await runDecoupe(llm, oeuvre, () => {}, typeof sequenceContext === 'string' ? sequenceContext : undefined)).slice(0, 3)
 
     const response: CorpusDecoupeResponse = { oeuvre_id: oeuvre.id, passages }
     return NextResponse.json(response)

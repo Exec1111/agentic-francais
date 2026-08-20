@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { runGenerationPhase, SeancePedagogie } from '@/backend/workflow-engine'
 import type { ArchitectOutput } from '@/shared/schemas'
+import { CorpusWorkflowSelectionSchema } from '@/shared/schemas'
 
 /**
  * Phase 2 du flux « enseignement explicite » : reçoit l'architecture et le mode
@@ -9,12 +10,13 @@ import type { ArchitectOutput } from '@/shared/schemas'
  */
 export async function POST(request: NextRequest) {
   const body = await request.json()
-  const { workflow_id, architecture, pedagogie, provider, corpus_refs } = body as {
+  const { workflow_id, architecture, pedagogie, provider, corpus_refs, corpus_selection } = body as {
     workflow_id: string
     architecture: ArchitectOutput
     pedagogie: SeancePedagogie[]
     provider?: string
     corpus_refs?: string[]
+    corpus_selection?: unknown
   }
 
   if (!workflow_id || !architecture || !Array.isArray(pedagogie)) {
@@ -28,7 +30,8 @@ export async function POST(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        for await (const event of runGenerationPhase(workflow_id, architecture, pedagogie, provider, corpus_refs)) {
+        const selection = CorpusWorkflowSelectionSchema.safeParse(corpus_selection)
+        for await (const event of runGenerationPhase(workflow_id, architecture, pedagogie, provider, corpus_refs, selection.success ? selection.data : undefined)) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
         }
       } catch (error) {

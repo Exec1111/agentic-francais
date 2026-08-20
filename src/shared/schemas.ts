@@ -105,6 +105,24 @@ export type CorpusRankingItem = z.infer<typeof CorpusRankingItemSchema>
 export type CorpusPassageProposal = z.infer<typeof CorpusPassageProposalSchema>
 export type CorpusDecoupe = z.infer<typeof CorpusDecoupeSchema>
 
+export const CorpusIntentSchema = z.enum(['identified', 'guided', 'free'])
+export const CorpusStudyTypeSchema = z.enum(['groupement', 'oeuvre_integrale'])
+export const CorpusPassageSelectionSchema = z.object({
+  id: z.string(),
+  corpus_id: z.string(),
+  titre: z.string(),
+  angle: z.string().optional(),
+  start_anchor: z.string().optional(),
+  end_anchor: z.string().optional(),
+  source: z.enum(['corpus', 'ia', 'manual']),
+})
+export const CorpusWorkflowSelectionSchema = z.object({
+  intent: CorpusIntentSchema,
+  study_type: CorpusStudyTypeSchema,
+  work_refs: z.array(z.string()),
+  passage_selections: z.array(CorpusPassageSelectionSchema),
+})
+
 // === Schémas des artefacts pédagogiques ===
 
 export const RessourceTypeSchema = z.enum([
@@ -263,6 +281,9 @@ export const SequenceSchema = z.object({
   objectifs: z.array(z.string()),
   competences: z.array(z.string()),
   corpus_refs: z.array(z.string()).default([]),
+  corpus_intent: CorpusIntentSchema.optional(),
+  corpus_study_type: CorpusStudyTypeSchema.optional(),
+  corpus_passages: z.array(CorpusPassageSelectionSchema).optional(),
   /**
    * Profils de différenciation actifs pour cette séquence (préférences « classe »).
    * Restreint les variantes proposées dans le panneau de ressources. Absent/undefined

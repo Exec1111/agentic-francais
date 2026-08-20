@@ -10,6 +10,7 @@ import {
   Sequence, Review, AgentName, OrchestratorOutputSchema,
   CorpusSuggestionSchema, CorpusItem, PedagogyAdvisorOutput, ModePedagogique,
 } from '@/shared/schemas'
+import type { CorpusWorkflowSelection } from '@/shared/corpus-workflow'
 
 // Décision pédagogique par séance, transmise par l'enseignant après le gate.
 export interface SeancePedagogie {
@@ -57,6 +58,7 @@ export async function* runStructurePhase(
   demande: string,
   provider?: string,
   corpusRefs?: string[],
+  corpusSelection?: CorpusWorkflowSelection,
 ): AsyncGenerator<WorkflowEvent> {
   const workflowId = uuidv4()
   const llm: LLMProvider = createLLMProvider(provider)
@@ -90,7 +92,7 @@ export async function* runStructurePhase(
     yield { type: 'react_action', step, action: 'construire_sequence', input: params.theme }
     yield { type: 'agent_start', agent: 'architecte' }
     const archLogs: string[] = []
-    const architecture = await runArchitect(llm, params, (m) => archLogs.push(m), preselectedCorpusItems)
+    const architecture = await runArchitect(llm, params, (m) => archLogs.push(m), preselectedCorpusItems, corpusSelection?.study_type)
     for (const log of archLogs) yield { type: 'agent_log', agent: 'architecte', message: log }
     yield { type: 'agent_done', agent: 'architecte', output: architecture }
     yield { type: 'react_observation', step, observation: `Séquence « ${architecture.titre_sequence} » — ${architecture.seances.length} séances` }
@@ -121,6 +123,7 @@ export async function* runGenerationPhase(
   pedagogie: SeancePedagogie[],
   provider?: string,
   corpusRefs?: string[],
+  corpusSelection?: CorpusWorkflowSelection,
 ): AsyncGenerator<WorkflowEvent> {
   const llm: LLMProvider = createLLMProvider(provider)
   const preselectedCorpusItems = await resolveCorpusItems(corpusRefs)
@@ -139,7 +142,7 @@ export async function* runGenerationPhase(
     for (const log of genLogs) yield { type: 'agent_log', agent: 'generateur', message: log }
     yield { type: 'agent_done', agent: 'generateur', output: generatorOutput }
 
-    let sequence = await assembleSequence(workflowId, architecture, generatorOutput, llm, preselectedCorpusItems)
+    let sequence = await assembleSequence(workflowId, architecture, generatorOutput, llm, preselectedCorpusItems, corpusSelection)
     // Attache le mode retenu et la recommandation à chaque séance.
     sequence = {
       ...sequence,
@@ -302,7 +305,8 @@ async function assembleSequence(
   arch: ArchitectOutput,
   gen: GeneratorOutput,
   llm: LLMProvider,
-  preselectedCorpusItems: CorpusItem[] = []
+  preselectedCorpusItems: CorpusItem[] = [],
+  corpusSelection?: CorpusWorkflowSelection,
 ): Promise<Sequence> {
   const seances = await Promise.all(
     arch.seances.map(async (s) => {
@@ -372,6 +376,9 @@ async function assembleSequence(
     objectifs: arch.objectifs,
     competences: arch.competences,
     corpus_refs: preselectedCorpusItems.map((item) => item.id),
+    corpus_intent: corpusSelection?.intent,
+    corpus_study_type: corpusSelection?.study_type,
+    corpus_passages: corpusSelection?.passage_selections ?? [],
     seances,
     evaluation_finale: arch.evaluation_finale || undefined,
     ressources: [],

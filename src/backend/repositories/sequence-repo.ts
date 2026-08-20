@@ -60,8 +60,8 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
   const timestamp = now()
 
   const insertSeq = db.prepare(`
-    INSERT INTO sequences (id, titre, niveau, theme, problematique, evaluation_finale, objectifs, competences, corpus_refs, differentiation_profils, ressources, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sequences (id, titre, niveau, theme, problematique, evaluation_finale, objectifs, competences, corpus_refs, corpus_intent, corpus_study_type, corpus_passages, differentiation_profils, ressources, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       titre = excluded.titre,
       niveau = excluded.niveau,
@@ -71,6 +71,9 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
       objectifs = excluded.objectifs,
       competences = excluded.competences,
       corpus_refs = excluded.corpus_refs,
+      corpus_intent = excluded.corpus_intent,
+      corpus_study_type = excluded.corpus_study_type,
+      corpus_passages = excluded.corpus_passages,
       differentiation_profils = excluded.differentiation_profils,
       ressources = excluded.ressources,
       updated_at = excluded.updated_at
@@ -89,6 +92,9 @@ export function saveSequence(sequence: Sequence, review?: Review | null): string
       toJson(sequence.objectifs),
       toJson(sequence.competences),
       toJson(sequence.corpus_refs || []),
+      sequence.corpus_intent ?? null,
+      sequence.corpus_study_type ?? null,
+      toJson(sequence.corpus_passages || []),
       sequence.differentiation_profils ? toJson(sequence.differentiation_profils) : null,
       toJson(sequence.ressources || []),
       sequence.createdAt ?? timestamp,
@@ -255,6 +261,9 @@ export function getSequenceById(id: string): SequenceWithReview | null {
     objectifs: fromJson<string[]>(row.objectifs),
     competences: fromJson<string[]>(row.competences),
     corpus_refs: fromJson<string[]>(row.corpus_refs ?? '[]'),
+    corpus_intent: row.corpus_intent ?? undefined,
+    corpus_study_type: row.corpus_study_type ?? undefined,
+    corpus_passages: fromJson<Sequence['corpus_passages']>(row.corpus_passages ?? '[]'),
     differentiation_profils: row.differentiation_profils
       ? fromJson<Sequence['differentiation_profils']>(row.differentiation_profils)
       : undefined,

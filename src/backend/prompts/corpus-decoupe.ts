@@ -35,12 +35,14 @@ RÈGLE ABSOLUE SUR LES ANCRES :
 - N'ajoute ni guillemets ni crochets autour des ancres.
 - Si tu hésites sur une portion, ne la propose pas plutôt que d'inventer une citation.`
 
-export function buildDecoupeMessages(oeuvre: CorpusItem): LLMMessage[] {
+export function buildDecoupeMessages(oeuvre: CorpusItem, sequenceContext?: string): LLMMessage[] {
   return [
     { role: 'system', content: DECOUPE_SYSTEM_PROMPT },
     {
       role: 'user',
-      content: `Découpe cette œuvre en passages exploitables.
+      content: `Découpe cette œuvre en passages exploitables.${sequenceContext ? `
+Le passage doit servir prioritairement le besoin de séquence suivant :
+${sequenceContext}` : ''}
 - Auteur : ${oeuvre.auteur}
 - Œuvre : « ${oeuvre.oeuvre} »
 - Niveaux visés : ${oeuvre.niveaux.join(', ') || 'non précisé'}

@@ -22,7 +22,7 @@ RÈGLES :
 - Les compétences doivent correspondre aux domaines du français (lire, écrire, s'exprimer à l'oral, comprendre le fonctionnement de la langue, acquérir des éléments de culture littéraire).
 - Ne rédige PAS les activités détaillées.`
 
-export function buildUserPrompt(params: OrchestratorOutput, corpusItems: CorpusItem[]): string {
+export function buildUserPrompt(params: OrchestratorOutput, corpusItems: CorpusItem[], corpusInstruction = ''): string {
   const corpusBlock = corpusItems.length > 0
     ? `\nTEXTES AU PROGRAMME (à intégrer dans la structure des séances) :\n${corpusItems
         .map((item) => `- ${item.auteur}, « ${item.oeuvre} »${item.pages ? ` (${item.pages})` : ''} — ${item.genres.join(', ')}`)
@@ -35,5 +35,5 @@ export function buildUserPrompt(params: OrchestratorOutput, corpusItems: CorpusI
 - Nombre de séances : ${params.nombre_seances}
 - Problématique suggérée : ${params.problematique_suggeree}
 - Évaluation finale : ${params.evaluation_finale ? 'oui' : 'non'}
-- Contraintes : ${params.contraintes.length > 0 ? params.contraintes.join(', ') : 'aucune'}${corpusBlock}`
+ - Contraintes : ${params.contraintes.length > 0 ? params.contraintes.join(', ') : 'aucune'}${corpusInstruction ? `\n- Cadre de corpus obligatoire : ${corpusInstruction}` : ''}${corpusBlock}`
 }

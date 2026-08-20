@@ -19,6 +19,7 @@ import { useSequenceEditor } from '@/frontend/hooks/useSequenceEditor'
 import { useSequenceStore } from '@/frontend/hooks/useSequenceStore'
 import type { CorpusSuggestResponse } from '@/app/api/corpus/suggest/route'
 import type { ArchitectOutput, PedagogyAdvisorOutput } from '@/shared/schemas'
+import type { CorpusWorkflowSelection } from '@/shared/corpus-workflow'
 
 type AgentName = 'orchestrateur' | 'architecte' | 'conseiller' | 'generateur' | 'reviewer'
 
@@ -57,6 +58,7 @@ export default function HomePage() {
   // Structure en attente de validation pédagogique (gate) + refs corpus pour la phase 2.
   const [pendingStructure, setPendingStructure] = useState<PendingStructure | null>(null)
   const [corpusRefs, setCorpusRefs] = useState<string[]>([])
+  const [corpusSelection, setCorpusSelection] = useState<CorpusWorkflowSelection | null>(null)
   const [reactSteps, setReactSteps] = useState<ReactStepData[]>([])
   const [progress, setProgress] = useState<WorkflowProgress | null>(null)
   const editor = useSequenceEditor()
@@ -94,6 +96,7 @@ export default function HomePage() {
     setCorpusSuggest(null)
     setProgress(null)
     setPendingStructure(null)
+    setCorpusSelection(null)
   }, [])
 
   // Applique un événement du flux SSE à l'état de l'UI (commun aux deux phases).
@@ -210,9 +213,11 @@ export default function HomePage() {
   }, [handleEvent])
 
   // Phase 1 (depuis la modale) : structure la séquence, puis ouvre le gate pédagogique.
-  const handleGenerate = useCallback(async (texte: string, refs: string[]) => {
+  const handleGenerate = useCallback(async (texte: string, selection: CorpusWorkflowSelection) => {
+    const refs = selection.work_refs
     setDemande(texte)
     setCorpusRefs(refs)
+    setCorpusSelection(selection)
     setGenerationStep('generating')
     setIsRunning(true)
     setError(null)
@@ -223,7 +228,7 @@ export default function HomePage() {
       const response = await fetch('/api/generate/structure', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ demande: texte, provider, corpus_refs: refs }),
+        body: JSON.stringify({ demande: texte, provider, corpus_refs: refs, corpus_selection: selection }),
         signal: abortRef.current.signal,
       })
       await consumeStream(response)
@@ -252,6 +257,7 @@ export default function HomePage() {
           pedagogie: choices,
           provider,
           corpus_refs: corpusRefs,
+          corpus_selection: corpusSelection,
         }),
         signal: abortRef.current.signal,
       })
@@ -261,7 +267,7 @@ export default function HomePage() {
     } finally {
       setIsRunning(false)
     }
-  }, [pendingStructure, provider, corpusRefs, consumeStream])
+  }, [pendingStructure, provider, corpusRefs, corpusSelection, consumeStream])
 
   const handleSave = useCallback(async () => {
     if (!editor.sequence) return

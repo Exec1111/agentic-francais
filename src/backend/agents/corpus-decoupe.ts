@@ -24,10 +24,11 @@ export async function runDecoupe(
   llm: LLMProvider,
   oeuvre: CorpusItem,
   onLog: (msg: string) => void = () => {},
+  sequenceContext?: string,
 ): Promise<PassageResolu[]> {
   onLog(`Découpe de « ${oeuvre.oeuvre} » en passages...`)
 
-  const messages = buildDecoupeMessages(oeuvre)
+  const messages = buildDecoupeMessages(oeuvre, sequenceContext)
   const options = { temperature: 0.5, schema: CorpusDecoupeSchema, schemaName: 'corpus_decoupe' }
   const response = await llm.chat(messages, options)
 
